@@ -107,6 +107,39 @@ scene.report()                                          # 自检报告
 
 ---
 
+## 两条通道：JSON 快捷通道 ｜ Python 创作通道
+
+同一个能力层，两个入口。**不是"高级 / 初级"的关系，是两种不同的取舍**：
+
+| | **JSON 快捷通道** | **Python 创作通道** |
+|---|---|---|
+| 形式 | 声明式场景（`Scene.from_dict` / `pixsmith render x.json`） | 命令式 API（`Canvas` / `Scene` / 算子） |
+| 长处 | **token 最省**、可 schema 校验、可 diff、非程序员能改、远程调用安全 | **表达力不受限** |
+| 短处 | 表达力受限于预设的 op 集合 | 冗长；写错一处就跑不起来 |
+| 适合 | 常见需求、需要人来改参数的场景、AI agent 的默认路径 | 循环参数化、数学几何、条件逻辑 —— JSON 装不下的那些 |
+
+```python
+import math
+from pixsmith import Canvas, Scene
+
+# 快捷通道：几十个 token 说清一张图
+Scene.from_dict({"dsl": 1, "size": [1920, 1080], "background": "#0A1730",
+                 "ops": [{"op": "linear_gradient", "begin": "#0A1730", "end": "#C8102E"}]})
+
+# 创作通道：表达力没有天花板
+c = Canvas(1920, 1080, "#0A1730")
+for i in range(72):                       # 循环？参数化？数学？都可以
+    a = i * math.pi / 36
+    c.capsule(960, 540, 960 + math.cos(a) * 700, 540 + math.sin(a) * 700,
+              3.0, f"#F2C14E{40 + i * 3:02X}")
+```
+
+> 两条通道都**共享同一个能力层**，没有重复实现 —— 所以不存在"某个效果只有一边能做"。
+> 判断用哪条：**先试快捷通道，装不下再走创作通道。** 反过来也成立（能把 Python 逻辑
+> 降到 JSON 的，就降下来，那样更省、更稳、可分享）。
+
+---
+
 ## 架构：为什么加一个后端不用改任何图案
 
 ```
@@ -362,6 +395,21 @@ pytest          # 283 passed
 3. **当注释读** —— 逐像素写法把公式完整摊开，比任何文字说明都清楚。
 
 它慢（图元代价是 O(包围盒面积)，长斜线会跑到分钟级），**别在正式代码里用它**。
+
+## 贡献
+
+**素材层欢迎天天加，能力层请先开 issue 对齐。** 加一个图案：
+
+```bash
+pixsmith new my_texture --category texture    # 生成骨架
+# → 贴进 patterns/ 对应模块 → pip install -e . → pytest
+```
+
+`pixsmith new` 会把**收录三问**一起写进模板 ——
+答不上"它演示什么能力组合 / 改哪个参数会怎样 / 什么场景该用它"的图案，别人抄不走，也就没有价值。
+
+完整规则见 [`CONTRIBUTING.md`](CONTRIBUTING.md)（含双后端贡献注意事项、
+提交前自检清单、以及**文字与命名禁忌**）。
 
 ## License
 

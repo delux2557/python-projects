@@ -102,3 +102,33 @@ def test_gallery_can_skip_html(tmp_path):
     assert main(["gallery", "--out", str(tmp_path), "--size", "32x32",
                  "--no-html"]) == 0
     assert not (tmp_path / "index.html").exists()
+
+
+# ---------------------------------------------------------------- new
+def test_new_prints_usable_skeleton(capsys):
+    """脚手架的产物必须真的能用：有 @pattern 声明、有参数、有收录三问。"""
+    assert main(["new", "my_thing", "--category", "texture"]) == 0
+    out = capsys.readouterr().out
+    assert '@pattern("my_thing"' in out
+    assert 'category="texture"' in out
+    assert "Param(" in out
+    assert "收录三问" in out
+    assert "requires" in out, "骨架里应当提示双后端的声明方式"
+
+
+def test_new_writes_file(tmp_path, capsys):
+    target = tmp_path / "sub" / "p.py"
+    assert main(["new", "demo_key", "-o", str(target)]) == 0
+    assert target.exists()
+    assert '@pattern("demo_key"' in target.read_text(encoding="utf-8")
+
+
+def test_new_rejects_bad_name(capsys):
+    for bad in ("Bad-Name", "1abc", "空格 名", "has.dot"):
+        assert main(["new", bad]) == 2, f"{bad!r} 应被拒绝"
+    assert "只能用小写字母" in capsys.readouterr().err
+
+
+def test_new_warns_on_duplicate_key(capsys):
+    assert main(["new", "gradient"]) == 0
+    assert "已存在" in capsys.readouterr().err

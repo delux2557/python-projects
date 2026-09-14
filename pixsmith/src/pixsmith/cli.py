@@ -219,6 +219,78 @@ code {{ font-family:ui-monospace, Consolas, monospace; background:var(--line);
 """
 
 
+_PATTERN_SKELETON = '''"""<这一类图案的定位> —— <这个图案的一句话说明>。
+
+【收录三问】提交前必须答得上，答不上就不该收：
+1. **演示什么能力组合**：用了哪几个图元 / 算子（写具体名字）
+2. **改哪个参数会怎样**：一句话给使用者指路
+3. **什么场景该用它**：海报底图？图示装饰？占位件？
+"""
+
+from __future__ import annotations
+
+from . import Param, pattern
+
+__all__ = []
+
+
+@pattern("{key}", "<一句话描述：会出现在 CLI list 与画廊里>", [
+    Param("color", "color", "#F2C14E", "主色"),
+    Param("freq", "float", 4.0, "密度（越大越密）"),
+    Param("seed", "int", 0, "随机种子（决定可复现）"),
+], category="{category}")
+def {key}(c, *, color, freq, seed):
+    """只调用**后端协议**里的方法（清单见 `pixsmith/backend.py`），两个后端才能都跑。
+
+    确需逐像素（numpy 场 / `c.paint`）时，加上 `requires=("paint",)` 显式声明 ——
+    矢量后端会在渲染前拦下并给出替代方案，而不是静默降级。
+    """
+    c.fill("#0A1730")
+    for i in range(8):
+        c.disc(20.0 + i * 12.0, 30.0, 6.0, color)
+    return c
+'''
+
+_NEW_CHECKLIST = """
+下一步（照做就行）：
+  1. 把上面的函数贴进 src/pixsmith/patterns/<模块>.py（按类别选模块，见模块 docstring）
+  2. 重装：pip install -e .
+  3. pytest                      ← 新图案会自动被测试纳入，不用手写用例
+  4. pixsmith show {key}          ← 检查参数声明有没有漏
+  5. pixsmith gallery --out gallery --svg   ← 生成效果图并看是否满意
+  6. 回答 docstring 里的【收录三问】—— 答不上就别提交
+
+⚠️ 硬性禁忌：仓库内任何地方不得出现指向特定厂商/产品的字样
+   （见 CONTRIBUTING.md 的「文字与命名禁忌」）。
+"""
+
+
+def _cmd_new(args) -> int:
+    """生成一个图案骨架 —— 让"加一个图案"从"读源码猜格式"变成"填模板"。"""
+    import re
+
+    key = str(args.key).strip()
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", key):
+        print("❌ 图案名只能用小写字母 / 数字 / 下划线，且以字母开头", file=sys.stderr)
+        return 2
+    from .patterns import REGISTRY
+    exists = key in REGISTRY
+    cat = args.category or "misc"
+    body = _PATTERN_SKELETON.format(key=key, category=cat)
+    if args.out:
+        p = Path(args.out)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+        print(f"✅ 已写入 {p}")
+    else:
+        print(body)
+    if exists:
+        print(f"\n⚠️ 注意：图案 key {key!r} **已存在**，重名会在导入时直接报错。"
+              f"请换一个名字，或先确认是否与已有图案重复。", file=sys.stderr)
+    print(_NEW_CHECKLIST.format(key=key))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pixsmith",
@@ -256,6 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-examples", action="store_true",
                    help="不附带每个图案的最小可用场景")
     s.set_defaults(func=_cmd_spec)
+
+    s = sub.add_parser("new", help="生成一个图案骨架（贡献新素材时用）")
+    s.add_argument("key", help="图案名（小写字母/数字/下划线，如 my_texture）")
+    s.add_argument("--category", help="分类：background|texture|natural|shape|festive")
+    s.add_argument("-o", "--out", help="写入文件（省略则打到 stdout）")
+    s.set_defaults(func=_cmd_new)
 
     s = sub.add_parser("gallery", help="一次渲染全部图案 + 生成 HTML 索引")
     s.add_argument("-o", "--out", help="输出目录（默认 gallery/）")

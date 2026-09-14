@@ -18,3 +18,6 @@ output/
 Thumbs.db
 .idea/
 .vscode/
+
+# ---- agent 工作笔记（绝不发布）----
+.workbuddy/
