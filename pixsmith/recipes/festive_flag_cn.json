@@ -1,0 +1,10 @@
+{
+  "pattern": "flag_cn",
+  "size": [1800, 1200],
+  "note": "五星红旗。星的坐标与指向角按 GB 12982 的 30x20 网格算出（见 tests/test_flag_cn.py 的像素级校验）。",
+  "params": {
+    "bg": "#DE2910",
+    "star": "#FFDE00",
+    "padding": 0.0
+  }
+}

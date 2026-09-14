@@ -1,0 +1,13 @@
+{
+  "pattern": "gradient",
+  "size": [1920, 1080],
+  "background": "#00000000",
+  "note": "最常见的海报底图：深蓝 → 中国红，118° 斜向。改 begin/end 就能换风格。",
+  "params": {
+    "begin": "#0A1730",
+    "end": "#C8102E",
+    "mid": "#3A1A3E",
+    "mid_at": 0.55,
+    "angle": 118
+  }
+}

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pixsmith · 图案画廊</title>
+<style>
+:root { color-scheme: light dark; --fg:#1a1a1a; --bg:#faf9f7; --muted:#6b6b6b; --card:#fff; --line:#e5e2dc; }
+@media (prefers-color-scheme: dark) { :root { --fg:#f0eee9; --bg:#141414; --muted:#a0a0a0; --card:#1e1e1e; --line:#333; } }
+* { box-sizing: border-box; }
+body { margin:0; padding:40px 28px 64px; background:var(--bg); color:var(--fg);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; }
+h1 { font-size:22px; font-weight:600; margin:0 0 6px; }
+p.sub { color:var(--muted); font-size:13px; margin:0 0 32px; }
+h2 { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--muted); margin:36px 0 14px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:16px; }
+figure { margin:0; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+img { display:block; width:100%; aspect-ratio:8/5; object-fit:cover;
+  background:#000; }
+figcaption { padding:10px 12px; font-size:12px; line-height:1.5; }
+figcaption b { display:block; font-size:13px; font-weight:600; }
+figcaption .svg { float:right; font-size:11px; color:var(--muted);
+  border:1px solid var(--line); border-radius:4px; padding:0 5px; text-decoration:none; }
+figcaption span { color:var(--muted); }
+footer { margin-top:48px; color:var(--muted); font-size:12px; }
+code { font-family:ui-monospace, Consolas, monospace; background:var(--line);
+  padding:1px 5px; border-radius:4px; }
+</style></head><body>
+<h1>pixsmith · 图案画廊</h1>
+<p class="sub">v0.2.0 · 全部图片由 <code>pixsmith gallery</code> 程序生成，无外部素材、无版权风险。</p>
+<h2>texture</h2><div class="grid">
+<figure><img src="texture__brushed.png" alt="brushed" loading="lazy"><figcaption><b>brushed</b><span>拉丝金属：沿一个方向拉伸的噪声</span></figcaption></figure>
+<figure><img src="texture__clouds.png" alt="clouds" loading="lazy"><figcaption><b>clouds</b><span>云层：fBm 当作透明度（透明底，可直接叠在任意背景上）</span></figcaption></figure>
+<figure><img src="texture__cracks.png" alt="cracks" loading="lazy"><figcaption><b>cracks</b><span>裂纹 / 龟裂：细胞噪声的边界场</span></figcaption></figure>
+<figure><img src="texture__halftone.png" alt="halftone" loading="lazy"><figcaption><b>halftone</b><a class="svg" href="texture__halftone.svg" title="矢量版（可无损缩放）">SVG</a><span>半调网点：点径随参数场变化（径向/线性）</span></figcaption></figure>
+<figure><img src="texture__marble.png" alt="marble" loading="lazy"><figcaption><b>marble</b><span>大理石：域扭曲的 fBm 条纹</span></figcaption></figure>
+<figure><img src="texture__scanlines.png" alt="scanlines" loading="lazy"><figcaption><b>scanlines</b><a class="svg" href="texture__scanlines.svg" title="矢量版（可无损缩放）">SVG</a><span>扫描线 / 屏幕栅格</span></figcaption></figure>
+<figure><img src="texture__starfield.png" alt="starfield" loading="lazy"><figcaption><b>starfield</b><a class="svg" href="texture__starfield.svg" title="矢量版（可无损缩放）">SVG</a><span>星空：随机星点 + 光晕（可叠银河带）</span></figcaption></figure>
+</div>
+<h2>background</h2><div class="grid">
+<figure><img src="background__checker.png" alt="checker" loading="lazy"><figcaption><b>checker</b><span>棋盘格</span></figcaption></figure>
+<figure><img src="background__dots.png" alt="dots" loading="lazy"><figcaption><b>dots</b><a class="svg" href="background__dots.svg" title="矢量版（可无损缩放）">SVG</a><span>点阵底纹</span></figcaption></figure>
+<figure><img src="background__gradient.png" alt="gradient" loading="lazy"><figcaption><b>gradient</b><a class="svg" href="background__gradient.svg" title="矢量版（可无损缩放）">SVG</a><span>线性渐变底色（可加中段色标）</span></figcaption></figure>
+<figure><img src="background__grid.png" alt="grid" loading="lazy"><figcaption><b>grid</b><a class="svg" href="background__grid.svg" title="矢量版（可无损缩放）">SVG</a><span>网格 / 蓝图底纹</span></figcaption></figure>
+<figure><img src="background__noise.png" alt="noise" loading="lazy"><figcaption><b>noise</b><span>颗粒噪点叠加</span></figcaption></figure>
+<figure><img src="background__radial.png" alt="radial" loading="lazy"><figcaption><b>radial</b><a class="svg" href="background__radial.svg" title="矢量版（可无损缩放）">SVG</a><span>径向渐变（中心到边缘）</span></figcaption></figure>
+<figure><img src="background__rings.png" alt="rings" loading="lazy"><figcaption><b>rings</b><a class="svg" href="background__rings.svg" title="矢量版（可无损缩放）">SVG</a><span>同心圆环底纹</span></figcaption></figure>
+<figure><img src="background__stripes.png" alt="stripes" loading="lazy"><figcaption><b>stripes</b><span>等宽斜/直条纹</span></figcaption></figure>
+<figure><img src="background__vignette.png" alt="vignette" loading="lazy"><figcaption><b>vignette</b><span>四角压暗（叠在已有内容上）</span></figcaption></figure>
+</div>
+<h2>festive</h2><div class="grid">
+<figure><img src="festive__fireworks.png" alt="fireworks" loading="lazy"><figcaption><b>fireworks</b><a class="svg" href="festive__fireworks.svg" title="矢量版（可无损缩放）">SVG</a><span>烟花绽放（多组爆发 + 拖尾 + 亮头 + 辉光）</span></figcaption></figure>
+<figure><img src="festive__flag_cn.png" alt="flag_cn" loading="lazy"><figcaption><b>flag_cn</b><a class="svg" href="festive__flag_cn.svg" title="矢量版（可无损缩放）">SVG</a><span>五星红旗（GB 12982 标准 30×20 网格）</span></figcaption></figure>
+<figure><img src="festive__moon.png" alt="moon" loading="lazy"><figcaption><b>moon</b><a class="svg" href="festive__moon.svg" title="矢量版（可无损缩放）">SVG</a><span>满月：径向明暗 + 环形山 + 月晕</span></figcaption></figure>
+</div>
+<h2>shape</h2><div class="grid">
+<figure><img src="shape__gear.png" alt="gear" loading="lazy"><figcaption><b>gear</b><a class="svg" href="shape__gear.svg" title="矢量版（可无损缩放）">SVG</a><span>齿轮：中空外圈 + 渐开齿 + 辐条 + 轮毂</span></figcaption></figure>
+<figure><img src="shape__perspective_grid.png" alt="perspective_grid" loading="lazy"><figcaption><b>perspective_grid</b><a class="svg" href="shape__perspective_grid.svg" title="矢量版（可无损缩放）">SVG</a><span>透视地板（透视纵深网格）</span></figcaption></figure>
+<figure><img src="shape__ray_burst.png" alt="ray_burst" loading="lazy"><figcaption><b>ray_burst</b><a class="svg" href="shape__ray_burst.svg" title="矢量版（可无损缩放）">SVG</a><span>放射光芒阵列（烟花底 / 光晕）</span></figcaption></figure>
+<figure><img src="shape__star.png" alt="star" loading="lazy"><figcaption><b>star</b><a class="svg" href="shape__star.svg" title="矢量版（可无损缩放）">SVG</a><span>正星形（五角星 / N 角星）</span></figcaption></figure>
+</div>
+<footer>重新生成：<code>pixsmith gallery --out gallery</code></footer>
+</body></html>

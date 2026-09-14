@@ -1,0 +1,13 @@
+{
+  "pattern": "starfield",
+  "size": [2560, 1440],
+  "params": {
+    "bg": "#05070F",
+    "count": 900,
+    "seed": 20261001,
+    "colors": "#FFFFFF,#FFE9AF,#FFC9C9,#BDD8FF",
+    "max_radius": 3.0,
+    "glow": true,
+    "milky": 0.14
+  }
+}

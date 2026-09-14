@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 临时产物（gallery/ 是作品，要提交；output/ 是随手跑出来的，不提交）
+output/
+!output/.gitkeep
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
