@@ -32,6 +32,10 @@ jobs:
           python examples/02_batch_recipes.py
           python examples/03_custom_primitive.py
           python examples/04_scene_dual_backend.py
+      - name: 冒烟：MCP 服务器端到端
+        run: |
+          pixsmith-mcp --selftest
+          python tools/mcp_smoke.py --console
       - name: 冒烟：CLI 端到端
         shell: bash
         run: |

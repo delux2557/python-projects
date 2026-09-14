@@ -345,11 +345,13 @@ src/pixsmith/
 ├─ color.py         颜色解析 / 插值 / 色标场
 ├─ recipes.py       配方入口（兼容单图案写法，内部走 Scene）
 ├─ cli.py           命令行
+├─ mcp_server.py    MCP server（手写 JSON-RPC，零依赖）
 └─ patterns/        素材：只用协议方法画东西，所以后端可替换
    backgrounds · textures · geometry · festive · natural
 tests/              283 个用例
 benchmarks/         纯 Python 参考实现 + 性能基准
 examples/           可运行的四个示例
+tools/mcp_smoke.py  MCP 端到端冒烟（起真实子进程走完整握手）
 recipes/            配方 JSON 示例
 gallery/            由 CLI 生成的图案画廊（含矢量版）
 ```
@@ -364,7 +366,7 @@ gallery/            由 CLI 生成的图案画廊（含矢量版）
 ## 测试
 
 ```bash
-pytest          # 303 passed
+pytest          # 328 passed
 ```
 
 六个层次的验证：
@@ -410,6 +412,34 @@ pixsmith new my_texture --category texture    # 生成骨架
 
 完整规则见 [`CONTRIBUTING.md`](CONTRIBUTING.md)（含双后端贡献注意事项、
 提交前自检清单、以及**文字与命名禁忌**）。
+
+## 用 MCP 接入（agent 直接当工具调用）
+
+```bash
+pip install -e .
+pixsmith-mcp --selftest      # 检查服务器就绪
+```
+
+客户端配置：
+
+```json
+{"mcpServers": {"pixsmith": {"command": "pixsmith-mcp"}}}
+```
+
+暴露 **3 个工具**（刻意少而准）：`spec`（查能力）/ `validate`（只校验不渲染）/ `render`（渲染）。
+
+三个 agent 友好的关键决定：
+
+- **`render` 默认回一张缩小预览图** —— agent 看不见图是最大的障碍，给它一双眼睛比给更多数字有用
+- **工具失败用 `isError: true`**（内容块会交给模型，它能自己改），而不是 JSON-RPC error（模型看不见原因）
+- **`initialize.instructions` 里直接写操作规程** —— 那是协议给"怎么用我"留的位置
+
+> ⭐ 这个服务器**只暴露 JSON 快捷通道，不暴露 Python 创作通道** —— 于是它天然没有代码执行面。
+> 这正是"把能力分成两条通道"的架构回报：需要一个给不可信输入的安全沙箱时，
+> **声明式那一层就是现成的沙箱**。
+
+**没有额外依赖**：MCP 的 stdio 部分就是"换行分隔的 JSON-RPC 2.0 + 四个方法"，
+本项目手写实现（约 300 行），不引 SDK。详见 [`docs/31-MCP接入.md`](docs/31-MCP接入.md)。
 
 ## 用 AI agent 驱动
 

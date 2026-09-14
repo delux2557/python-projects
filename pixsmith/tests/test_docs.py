@@ -33,7 +33,8 @@ def _read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("doc", ["docs/能力边界.md", "AGENTS.md"])
+@pytest.mark.parametrize("doc", ["docs/能力边界.md", "AGENTS.md",
+                                     "docs/31-MCP接入.md"])
 def test_doc_has_version_stamp_matching_code(doc):
     """文档必须标出它对应哪个版本，且与 `__version__` 一致。"""
     text = _read(ROOT / doc)

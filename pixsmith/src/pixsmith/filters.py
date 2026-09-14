@@ -22,7 +22,7 @@ from __future__ import annotations
 import numpy as np
 
 __all__ = ["blur", "box_blur", "adjust", "posterize", "solarize", "invert",
-           "grayscale", "grain", "warp_field", "sample_bilinear",
+           "grayscale", "grain", "warp_field", "sample_bilinear", "resize",
            "hue_saturation_matrix"]
 
 # Rec.709 亮度权重（与 CSS/SVG 的 saturate 一致）
@@ -256,3 +256,27 @@ def warp_field(src: np.ndarray, dx: np.ndarray, dy: np.ndarray) -> np.ndarray:
     xs = np.arange(w, dtype=np.float32)[None, :] + dx
     ys = np.arange(h, dtype=np.float32)[:, None] + dy
     return sample_bilinear(src, xs, ys)
+
+
+def resize(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
+    """整幅缩放（双线性，**alpha 感知**）。
+
+    和模糊一样必须预乘再重采样：直通道直接插值时，透明像素的 RGB 会被混进来，
+    缩小后的边缘会发暗。
+
+    ⚠️ 这是**库函数**，不是 DSL 动词 —— 矢量域里的"缩放"是改 ``viewBox``（一次性设定），
+    和位图域"对已绘内容做变换"不是同一件事。把它塞进场景 op 列表会破坏双后端的语义一致性，
+    所以不进（见 docs/能力边界.md）。
+    """
+    h, w = rgba.shape[:2]
+    tw, th = max(1, int(width)), max(1, int(height))
+    if (tw, th) == (w, h):
+        return rgba.astype(np.float32, copy=True)
+    # 目标像素中心 → 源坐标（中心对齐，避免整体偏移半个像素）
+    xs = ((np.arange(tw, dtype=np.float32) + 0.5) * (w / tw) - 0.5)[None, :]
+    ys = ((np.arange(th, dtype=np.float32) + 0.5) * (h / th) - 0.5)[:, None]
+    src = rgba if rgba.dtype == np.float32 else rgba.astype(np.float32) / np.float32(255.0)
+    pm = _premultiply(src)
+    out = sample_bilinear(pm, np.broadcast_to(xs, (th, tw)),
+                          np.broadcast_to(ys, (th, tw)))
+    return _unpremultiply(out, out[..., 3:4])

@@ -1,6 +1,6 @@
 # AGENTS.md — 给 AI agent 的操作手册
 
-> 对应版本：v0.3.2
+> 对应版本：v0.4.0
 > 给人读的文档在 [`README.md`](README.md) 与 [`docs/能力边界.md`](docs/能力边界.md)；
 > 这一份只讲**该怎么做**，不讲背景。权威能力清单以 `pixsmith spec --json` 为准（它从代码生成，不会过期）。
 
@@ -159,6 +159,18 @@ pixsmith --json-errors render nope
 | `场景缺少 'size'` | 没给尺寸 | 给 `"size": [w, h]` 或 `"aspect": "16:9"` |
 
 ---
+
+## 如果你是通过 MCP 接入的
+
+直接调用 `spec` / `validate` / `render` 三个工具即可，不用拼命令行。
+两条差异要注意：
+
+- `render` **默认回一张缩小预览图**（你可以直接看见结果），
+  不需要就传 `embed_preview: false` 省上下文。
+- 工具失败返回的是 `isError: true` 的**内容块**（不是协议错误），
+  里面是结构化 JSON，照着改就行。
+
+细节见 [`docs/31-MCP接入.md`](docs/31-MCP接入.md)。
 
 ## 硬性禁忌
 
