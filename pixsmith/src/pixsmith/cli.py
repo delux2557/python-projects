@@ -16,6 +16,7 @@ from .backend import UnsupportedOperation
 from .canvas import Canvas
 from .patterns import by_category, describe, get, names
 from .patterns._util import fit_size
+from .playground import DEFAULT_HOST, DEFAULT_PORT
 from .recipes import DEFAULT_SIZE, list_patterns, recipe_from_cli, render, to_json
 
 __all__ = ["main", "build_parser"]
@@ -456,6 +457,20 @@ def _cmd_new(args) -> int:
     return 0
 
 
+def _cmd_serve(args) -> int:
+    """本地调参台（浏览器里拖滑块看效果）。
+
+    它补的是 MCP 的另一半：MCP 服务 agent，调参台服务人 ——
+    两边产出的都是**同一个场景 JSON**，所以手工调好的参数能直接给 agent / CLI / 存进 git。
+    """
+    from .playground import DEFAULT_HOST, DEFAULT_PORT, main as serve_main
+
+    argv = ["--port", str(args.port), "--host", args.host]
+    if args.no_open:
+        argv.append("--no-open")
+    return serve_main(argv)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pixsmith",
@@ -520,6 +535,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--category", help="分类：background|texture|natural|shape|festive")
     s.add_argument("-o", "--out", help="写入文件（省略则打到 stdout）")
     s.set_defaults(func=_cmd_new)
+
+    s = sub.add_parser("serve", help="本地调参台：拖滑块看效果，一键复制场景 JSON")
+    s.add_argument("--port", type=int, default=DEFAULT_PORT,
+                   help=f"端口（默认 {DEFAULT_PORT}；被占用会自动 +1 找空位）")
+    s.add_argument("--host", default=DEFAULT_HOST,
+                   help=f"监听地址（默认 {DEFAULT_HOST}；填 0.0.0.0 会暴露到局域网，谨慎）")
+    s.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
+    s.set_defaults(func=_cmd_serve)
 
     s = sub.add_parser("gallery", help="一次渲染全部图案 + 生成 HTML 索引")
     s.add_argument("-o", "--out", help="输出目录（默认 gallery/）")

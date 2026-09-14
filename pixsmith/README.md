@@ -345,6 +345,7 @@ src/pixsmith/
 ├─ color.py         颜色解析 / 插值 / 色标场
 ├─ recipes.py       配方入口（兼容单图案写法，内部走 Scene）
 ├─ cli.py           命令行
+├─ playground.py    本地调参台（零依赖 http.server）
 ├─ mcp_server.py    MCP server（手写 JSON-RPC，零依赖）
 └─ patterns/        素材：只用协议方法画东西，所以后端可替换
    backgrounds · textures · geometry · festive · natural
@@ -366,7 +367,7 @@ gallery/            由 CLI 生成的图案画廊（含矢量版）
 ## 测试
 
 ```bash
-pytest          # 328 passed
+pytest          # 349 passed
 ```
 
 六个层次的验证：
@@ -412,6 +413,22 @@ pixsmith new my_texture --category texture    # 生成骨架
 
 完整规则见 [`CONTRIBUTING.md`](CONTRIBUTING.md)（含双后端贡献注意事项、
 提交前自检清单、以及**文字与命名禁忌**）。
+
+## 本地调参台（人用的那一半）
+
+```bash
+pixsmith serve            # → http://127.0.0.1:8765/  自动开浏览器
+```
+
+浏览器里选图案、**拖滑块实时看效果**、调好之后**一键复制场景 JSON**：
+把手工调出来的参数直接给 CLI / agent / 存进 git。
+
+- **控件是自动生成的** —— 前端不手写任何一个图案的控件，全部从 `Param` 声明现推。
+  所以**加一个图案，调参台自动就支持它**。
+- 零依赖（只用 `http.server`），不需要 npm / 构建工具。
+- 默认只绑 `127.0.0.1`，并挡掉 DNS 重绑定与跨站 CSRF。
+
+> 它和 MCP 是互补的：**MCP 服务 agent，调参台服务人** —— 两边产出的是**同一个场景 JSON**。
 
 ## 用 MCP 接入（agent 直接当工具调用）
 
