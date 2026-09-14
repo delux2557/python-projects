@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .backend import UnsupportedOperation
 from .canvas import Canvas
 from .patterns import by_category, describe, get, names
 from .patterns._util import fit_size
@@ -32,6 +33,23 @@ def _cmd_list(args) -> int:
     return 0
 
 
+def _resolve_spec(key: str):
+    """按名字解析能力：**先找图案，再找动词**。
+
+    以前 `show` 只看图案，于是 `show blur` 会报"没有名为 blur 的图案" ——
+    动词明明存在，agent 却拿不到它的 JSON 规格。这两类的查询入口本来就该是一个。
+    """
+    from .ops import VERBS
+    from .patterns import REGISTRY
+
+    if key in REGISTRY:
+        return REGISTRY.get(key), "pattern"
+    if key in VERBS:
+        return VERBS.get(key), "verb"
+    raise KeyError(f"没有名为 {key!r} 的图案或动词。"
+                   f"图案：{REGISTRY.names()}；动词：{VERBS.names()}")
+
+
 def _cmd_show(args) -> int:
     if args.pattern in ("all", "*"):
         for i, key in enumerate(names()):
@@ -39,15 +57,15 @@ def _cmd_show(args) -> int:
                 print()
             print(describe(key))
         return 0
+    spec, kind = _resolve_spec(args.pattern)
     if args.json:
-        p = get(args.pattern)
-        data = {spec.name: {"type": spec.type, "default": spec.default,
-                            "doc": spec.doc} for spec in p.params}
-        print(json.dumps({"key": p.key, "category": p.category,
-                          "summary": p.summary, "params": data},
-                         ensure_ascii=False, indent=2))
+        data = {p.name: {"type": p.type, "default": p.default, "doc": p.doc}
+                for p in spec.params}
+        print(json.dumps({"key": spec.key, "kind": kind, "category": spec.category,
+                          "summary": spec.summary, "requires": list(spec.requires),
+                          "params": data}, ensure_ascii=False, indent=2))
         return 0
-    print(describe(args.pattern))
+    print(spec.describe())
     return 0
 
 
@@ -93,13 +111,104 @@ def _cmd_render(args) -> int:
     return 0
 
 
+def _cmd_validate(args) -> int:
+    """**只校验不渲染** —— 省掉 agent 一轮"生成 → 渲染 → 看报错 → 改"的循环。
+
+    校验内容：DSL 版本 / 顶层键 / 尺寸 / 动词与图案是否存在 / 参数名与类型 /
+    图层混合模式 / 后端能力是否满足。用 ``--backend svg`` 可以**提前**知道
+    这份场景能不能出矢量，而不必真渲染一次再失败。
+    """
+    from .blend import is_mode
+    from .scene import Scene
+    from .svg import SvgBackend
+
+    problems: list[str] = []
+    try:
+        scene = _load_scene(args)
+    except (KeyError, ValueError, TypeError) as exc:
+        problems.append(_error_payload(exc)["error"]["message"])
+        scene = None
+
+    report: dict = {"valid": False, "problems": problems, "warnings": [],
+                    "requires": [], "size": None, "ops": 0, "layers": 0}
+    if scene is not None:
+        report.update(size=list(scene.size), ops=len(scene.all_ops()),
+                      layers=len(scene.layers),
+                      requires=sorted(scene.requires()))
+        for i, layer in enumerate(scene.layers):
+            if not is_mode(layer.blend):
+                problems.append(f"第 {i + 1} 层的混合模式 {layer.blend!r} 不存在")
+            if not 0.0 <= layer.opacity <= 1.0:
+                problems.append(f"第 {i + 1} 层的 opacity={layer.opacity} 超出 0–1")
+        backend = None
+        if args.backend == "svg":
+            backend = SvgBackend(*scene.size)
+        elif args.backend is None and args.assume_svg:
+            backend = SvgBackend(*scene.size)
+        if backend is not None:
+            try:
+                scene.check_backend(backend)
+            except UnsupportedOperation as exc:
+                problems.append(str(exc).splitlines()[0].removeprefix("后端 "))
+        if not scene.layers:
+            report["warnings"].append("场景没有任何图层：会输出一张纯底色（或全透明）的图")
+    report["valid"] = not problems
+    report["problems"] = problems
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        head = "✅ 校验通过" if report["valid"] else "❌ 校验未通过"
+        print(f"{head}  （{report['ops']} 个 op · {report['layers']} 层 · "
+              f"尺寸 {report['size']}）")
+        for p in report["problems"]:
+            print(f"  ❌ {p}")
+        for w in report["warnings"]:
+            print(f"  ⚠️ {w}")
+        if report["requires"]:
+            print(f"  需要后端能力：{', '.join(report['requires'])}")
+    return 0 if report["valid"] else 2
+
+
 def _cmd_spec(args) -> int:
-    """能力清单 —— 给 AI agent 的自述文件（agent 靠它发现能力，而不是靠猜）。"""
+    """能力清单 —— 给 AI agent 的自述文件（agent 靠它发现能力，而不是靠猜）。
+
+    ``--only`` 是关键：全量清单约 49 KB，而 agent 通常只想问"这一个图案/动词
+    需要哪些参数"。``spec --json --only marble`` 会降到 1 KB 量级。
+    """
     from .manifest import capability_manifest
 
     man = capability_manifest(with_examples=not args.no_examples)
+    only = {str(k) for k in (args.only or ())}
+    if only:
+        unknown = only - set(man["patterns"]) - set(man["verbs"])
+        if unknown:
+            raise KeyError(f"--only 里有不存在的名字 {sorted(unknown)}"
+                           f"（可用图案 {len(man['patterns'])} 个、动词 {len(man['verbs'])} 个）")
+        man["patterns"] = {k: v for k, v in man["patterns"].items() if k in only}
+        man["verbs"] = {k: v for k, v in man["verbs"].items() if k in only}
+    if args.kind == "pattern":
+        man["verbs"] = {}
+    elif args.kind == "verb":
+        man["patterns"] = {}
+    if args.category:
+        cat = args.category
+        man["patterns"] = {k: v for k, v in man["patterns"].items()
+                           if v["category"] == cat}
+        man["verbs"] = {k: v for k, v in man["verbs"].items() if v["category"] == cat}
+    man["filtered"] = bool(only or args.kind != "all" or args.category)
+
     if args.json:
-        print(json.dumps(man, ensure_ascii=False, indent=2))
+        print(json.dumps(man, ensure_ascii=False, indent=2 if args.pretty else None))
+        return 0
+    if man["filtered"]:
+        for kind, items in (("图案", man["patterns"]), ("动词", man["verbs"])):
+            for key, info in sorted(items.items()):
+                print(f"{key}  [{info['category']}]  {info['summary']}")
+                for name, p in info["params"].items():
+                    print(f"  --{name:<14} {p['type']:<6} 默认 {p['default']!r:<14} {p['doc']}")
+        if not man["patterns"] and not man["verbs"]:
+            print("（没有匹配项）")
         return 0
     print(f"{man['name']} v{man['version']}  ·  DSL v{man['dsl_version']}")
     print(f"\n后端：")
@@ -118,6 +227,7 @@ def _cmd_spec(args) -> int:
     print(f"\n混合模式：{', '.join(man['blends'])}")
     print(f"噪声种类：{', '.join(man['noise_kinds'])}")
     print("\n加 --json 拿机器可读的完整清单（含每个参数的默认值/类型/后端支持）。")
+    print("清单较大时可缩小：`spec --json --only marble` 或 `--kind verb`。")
     return 0
 
 
@@ -297,16 +407,31 @@ def build_parser() -> argparse.ArgumentParser:
         description="程序化生成背景 / 底纹 / 装饰件 PNG（零素材、可复现）",
     )
     p.add_argument("--version", action="version", version=f"pixsmith {__version__}")
+    p.add_argument("--json-errors", action="store_true",
+                   help="错误输出为机器可读的 JSON（便于 agent 按行解析）")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("list", help="列出全部图案")
     s.add_argument("--json", action="store_true", help="以 JSON 输出")
     s.set_defaults(func=_cmd_list)
 
-    s = sub.add_parser("show", help="查看某个图案的参数说明")
-    s.add_argument("pattern", help="图案名；用 all 看全部")
+    s = sub.add_parser("show", help="查看某个图案或动词的参数说明")
+    s.add_argument("pattern", help="图案名或动词名；用 all 看全部图案")
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=_cmd_show)
+
+    s = sub.add_parser("validate", help="只校验场景，不渲染（省一轮往返）")
+    s.add_argument("recipe", help="场景 JSON / 配方 / 图案名 / - 读 stdin")
+    s.add_argument("-o", "--out", help="仅为与 render 参数对齐，validate 不写文件")
+    s.add_argument("--size", help="画布尺寸 WxH（配合图案名写法时用）")
+    s.add_argument("--background", help="底色")
+    s.add_argument("--set", action="append", metavar="K=V", help="覆盖图案参数")
+    s.add_argument("--backend", choices=["raster", "svg"],
+                   help="顺带检查该后端是否满足全部能力需求")
+    s.add_argument("--assume-svg", action="store_true",
+                   help="按矢量后端校验（等价于 --backend svg，对 agent 更顺手）")
+    s.add_argument("--json", action="store_true", help="输出机器可读结果")
+    s.set_defaults(func=_cmd_validate)
 
     s = sub.add_parser("render", help="渲染：吃场景 JSON、旧配方，或直接给图案名 + --set")
     s.add_argument("recipe", help="场景 JSON 路径 / 配方路径 / 图案名 / - 读 stdin")
@@ -325,8 +450,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("spec", help="能力清单（给 AI agent 的自述文件）")
     s.add_argument("--json", action="store_true", help="机器可读的完整清单")
+    s.add_argument("--pretty", action="store_true", help="JSON 缩进美化（默认紧凑，省 token）")
     s.add_argument("--no-examples", action="store_true",
                    help="不附带每个图案的最小可用场景")
+    s.add_argument("--only", action="append", metavar="KEY",
+                   help="只要这些图案/动词（可多次）—— 把 49KB 清单压到 1KB 的关键")
+    s.add_argument("--kind", choices=["all", "pattern", "verb"], default="all",
+                   help="只列图案或只列动词")
+    s.add_argument("--category", help="按分类过滤：background|texture|natural|shape|festive")
     s.set_defaults(func=_cmd_spec)
 
     s = sub.add_parser("new", help="生成一个图案骨架（贡献新素材时用）")
@@ -345,10 +476,31 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _error_payload(exc: BaseException) -> dict:
+    """异常 → 机器可读的错误对象。
+
+    ``str(KeyError)`` 会给消息**额外套一层引号**（``"没有名为 'x' 的图案"``），
+    对人是小事，对按行解析 stderr 的 agent 是噪音 —— 所以统一取 ``args[0]``。
+    """
+    msg = exc.args[0] if exc.args and isinstance(exc.args[0], str) else str(exc)
+    return {"error": {"type": type(exc).__name__, "message": msg}}
+
+
+def _emit_error(exc: BaseException, *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(_error_payload(exc), ensure_ascii=False), file=sys.stderr)
+    else:
+        print(f"❌ {_error_payload(exc)['error']['message']}", file=sys.stderr)
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (KeyError, ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
-        print(f"❌ {exc}", file=sys.stderr)
+    except (KeyError, ValueError, TypeError, OSError,
+            json.JSONDecodeError, UnsupportedOperation) as exc:
+        # UnsupportedOperation 继承 RuntimeError，**不会**被上面任何一个的父类覆盖 ——
+        # 漏掉它，最友好的那句报错（换后端/换方案）就会连整段栈一起塞进 traceback，
+        # 而 agent 最容易踩到的正是"想输出 SVG"这条路径。
+        _emit_error(exc, as_json=getattr(args, "json_errors", False))
         return 2

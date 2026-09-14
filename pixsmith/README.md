@@ -364,7 +364,7 @@ gallery/            由 CLI 生成的图案画廊（含矢量版）
 ## 测试
 
 ```bash
-pytest          # 283 passed
+pytest          # 293 passed
 ```
 
 六个层次的验证：
@@ -410,6 +410,21 @@ pixsmith new my_texture --category texture    # 生成骨架
 
 完整规则见 [`CONTRIBUTING.md`](CONTRIBUTING.md)（含双后端贡献注意事项、
 提交前自检清单、以及**文字与命名禁忌**）。
+
+## 用 AI agent 驱动
+
+仓库根目录有一份 **[`AGENTS.md`](AGENTS.md)** —— 给 agent 的操作手册，
+把关键规程显式写出来（优先走哪条通道、写图案要声明什么、怎么用 `--report` 自查），
+而不是指望 agent 自己从文档里推断。
+
+配套的机器接口：
+
+```bash
+pixsmith spec --json --only marble   # 单个图案的规格（含参数类型与默认值）
+pixsmith spec --json --kind verb     # 全部动词的规格
+pixsmith validate scene.json         # 只校验不渲染（省一轮往返）
+pixsmith --json-errors render x.json # 错误也是机器可读的 JSON
+```
 
 ## License
 

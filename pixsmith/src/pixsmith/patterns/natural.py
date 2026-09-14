@@ -48,7 +48,7 @@ def _warped(w: int, h: int, *, freq: float, octaves: int, strength: float,
     Param("warp", "float", 0.10, "域扭曲强度（0 = 直条纹）"),
     Param("detail", "float", 0.18, "细节噪点占比 0–1"),
     Param("seed", "int", 11, "随机种子"),
-], category="texture", requires=("paint",))
+], category="natural", requires=("paint",))
 def marble(c, *, stone, vein, freq, octaves, bands, warp, detail, seed):
     w, h = c.w, c.h
     base = _warped(w, h, freq=freq, octaves=octaves, strength=warp, seed=seed)
@@ -69,7 +69,7 @@ def marble(c, *, stone, vein, freq, octaves, bands, warp, detail, seed):
     Param("softness", "float", 0.35, "边缘柔和度 0–1（越大越稀薄）"),
     Param("warp", "float", 0.12, "域扭曲强度"),
     Param("seed", "int", 5, "随机种子"),
-], category="texture", requires=("paint",))
+], category="natural", requires=("paint",))
 def clouds(c, *, color, freq, octaves, coverage, softness, warp, seed):
     w, h = c.w, c.h
     f = _warped(w, h, freq=freq, octaves=octaves, strength=warp, seed=seed)
@@ -90,7 +90,7 @@ def clouds(c, *, color, freq, octaves, coverage, softness, warp, seed):
     Param("glow", "float", 0.0, "裂纹外发光强度 0–1"),
     Param("jitter", "float", 1.0, "细胞不规则度 0–1（0 = 规整网格）"),
     Param("seed", "int", 9, "随机种子"),
-], category="texture", requires=("paint",))
+], category="natural", requires=("paint",))
 def cracks(c, *, base, crack, freq, width, glow, jitter, seed):
     w, h = c.w, c.h
     edge = cellular_noise(w, h, freq=freq, seed=seed, jitter=jitter, mode="f2f1")
@@ -116,7 +116,7 @@ def cracks(c, *, base, crack, freq, width, glow, jitter, seed):
     Param("jitter", "float", 0.35, "纵向扰动 0–1（0 = 完全平行的丝）"),
     Param("contrast", "float", 0.55, "丝纹对比度 0–1"),
     Param("seed", "int", 3, "随机种子"),
-], category="texture", requires=("paint",))
+], category="natural", requires=("paint",))
 def brushed(c, *, base, highlight, angle, freq, jitter, contrast, seed):
     w, h = c.w, c.h
     # 关键手法：先生成一条**一维**噪声剖面，再按"投影到垂直方向"的坐标去查表。

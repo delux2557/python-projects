@@ -31,9 +31,27 @@ jobs:
           python examples/01_quickstart.py
           python examples/02_batch_recipes.py
           python examples/03_custom_primitive.py
+          python examples/04_scene_dual_backend.py
       - name: 冒烟：CLI 端到端
+        shell: bash
         run: |
-          pixsmith list --json
-          pixsmith show star
+          set -e
+          pixsmith list --json > /dev/null
+          pixsmith show star > /dev/null
+          pixsmith show blur --json > /dev/null          # 动词也要有 JSON 规格
+          pixsmith spec > /dev/null
+          pixsmith spec --json --only marble > /dev/null  # 过滤路径
           pixsmith render gradient --size 64x64 --set end=#00FF00 -o smoke.png
+          pixsmith render gradient --size 64x64 -o smoke.svg
           pixsmith gallery --out _gallery --size 48x32
+          # validate 只校验不渲染；合法场景应 exit 0
+          echo '{"dsl":1,"size":[64,64],"ops":[{"op":"blur","radius":4}]}' > scene.json
+          pixsmith validate scene.json --backend svg
+          # 用法错误必须 exit 2 且**不出现 traceback**
+          if pixsmith render nope 2>err.txt; then
+            echo "::error::非法输入应当返回非零退出码"; exit 1
+          fi
+          if [ "$?" != "2" ]; then echo "::error::退出码应为 2"; exit 1; fi
+          if grep -q Traceback err.txt; then
+            echo "::error::友好报错被 traceback 埋掉了"; exit 1
+          fi

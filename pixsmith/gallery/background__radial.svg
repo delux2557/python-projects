@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="450" viewBox="0 0 720 450">
-<defs><radialGradient id="ps-7-rg1" gradientUnits="userSpaceOnUse" cx="360" cy="225" r="424.529"><stop offset="0%" stop-color="#F2C14E" stop-opacity="1"/><stop offset="100%" stop-color="#0A1730" stop-opacity="1"/></radialGradient></defs>
-<rect x="0" y="0" width="720" height="450" fill="url(#ps-7-rg1)"/>
+<defs><radialGradient id="ps-4-rg1" gradientUnits="userSpaceOnUse" cx="360" cy="225" r="424.529"><stop offset="0%" stop-color="#F2C14E" stop-opacity="1"/><stop offset="100%" stop-color="#0A1730" stop-opacity="1"/></radialGradient></defs>
+<rect x="0" y="0" width="720" height="450" fill="url(#ps-4-rg1)"/>
 </svg>

@@ -23,7 +23,7 @@
 三条设计取舍
 ------------
 1. **双后端从第一天就是后端无关的**，不是事后加分叉。图案只调协议方法，
-   所以 19 个图案里有 15 个在 PNG 与 SVG 上都能跑（其余 4 个显式声明了为什么不能）。
+   所以 23 个图案里有 15 个在 PNG 与 SVG 上都能跑（其余 8 个是逐像素场，显式声明了为什么不能）。
 2. **确定性优先于"更好看"**：同 seed 必然同字节 —— 底图能进 git、能 diff、能当测试基线。
 3. **不做静默降级**：后端缺能力就报错。agent 看不见图，静默降级会让它以为做对了。
 """
@@ -41,7 +41,7 @@ from .recipes import (DEFAULT_SIZE, list_patterns, make_recipe, render,
 from .scene import Layer, Scene
 from .svg import SvgBackend
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "Canvas", "SvgBackend", "Scene", "Layer",

@@ -4,15 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pixsmith"
-version = "0.3.0"
-description = "程序化生成背景 / 底纹 / 装饰件 PNG —— 不找素材，用代码画"
+version = "0.3.1"
+description = "用代码生成背景 / 底纹 / 装饰件，输出 PNG 或 SVG —— 不找素材、可复现、对 AI agent 友好"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
   { name = "delux2557", email = "85469583+delux2557@users.noreply.github.com" },
 ]
-keywords = ["png", "procedural", "texture", "background", "generative", "numpy", "asset"]
+keywords = ["png", "svg", "procedural", "texture", "background", "generative",
+            "numpy", "asset", "ai-agent", "deterministic"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",

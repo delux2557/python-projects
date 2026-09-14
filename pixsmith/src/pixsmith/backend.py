@@ -81,9 +81,11 @@ def check_ops(backend: Any, ops: list[dict], *, where: str = "") -> None:
                 parts.append(f"{where_} 这个动词该后端没有")
             else:
                 parts.append(f"{where_} 还缺能力 {', '.join(gaps)}")
+        # ⚠️ 细节必须放在**第一行**：CLI（validate / render）只取首行做单行提示，
+        # 把关键信息放到第二行等于丢掉它。
         raise UnsupportedOperation(
-            f"后端 {name}{(' (' + where + ')') if where else ''} 不支持：\n  "
-            + "\n  ".join(parts)
-            + f"\n  该后端支持：{', '.join(sorted(have))}\n"
-            f"  可用替代：换用位图后端（pixsmith.Canvas），"
-            f"或改用该后端支持的效果组合。")
+            f"后端 {name}{(' (' + where + ')') if where else ''} 不支持："
+            + "；".join(parts)
+            + f"\n  该后端支持：{', '.join(sorted(have))}"
+            + "\n  可用替代：换用位图后端（pixsmith.Canvas），"
+              "或改用该后端支持的效果组合。")
