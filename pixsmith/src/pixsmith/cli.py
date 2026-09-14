@@ -269,7 +269,21 @@ def _cmd_gallery(args) -> int:
                     except Exception as exc:              # noqa: BLE001
                         print(f"  ⚠️ {p.key} 的 svg 失败：{exc}", file=sys.stderr)
             cards.append((cat, p, f"{cat}__{p.key}.png", svg_name))
-            print(f"  ✅ {cat}__{p.key}.png" + (f" + .svg" if svg_name else ""))
+            print(f"  ✅ {cat}__{p.key}.png" + (" + .svg" if svg_name else ""))
+
+    # 清理上一轮遗留：图案改名或**换分类**时，旧文件不会被覆盖 ——
+    # 上一次把 natural 类的图案从 texture 改过来，就留下了 4 个同名孤儿文件。
+    # 只清理符合本命令命名规范（<分类>__<key>.<ext>）且本轮没产出的文件，不碰用户自己的文件。
+    produced = {c[2] for c in cards} | {c[3] for c in cards if c[3]}
+    known_cats = set(by_category())
+    stale = [f for f in out_dir.iterdir()
+             if f.is_file() and f.suffix.lower() in (".png", ".svg")
+             and f.name not in produced
+             and f.stem.split("__", 1)[0] in known_cats
+             and "__" in f.stem]
+    for f in stale:
+        f.unlink()
+        print(f"  清理陈旧文件 {f.name}")
 
     if not args.no_html:
         rows = []

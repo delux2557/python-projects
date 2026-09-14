@@ -104,6 +104,24 @@ def test_gallery_can_skip_html(tmp_path):
     assert not (tmp_path / "index.html").exists()
 
 
+def test_gallery_prunes_stale_files_but_keeps_foreign_ones(tmp_path):
+    """图案换分类会留下孤儿文件 —— 画廊必须清掉它们，但**不能碰**用户自己的文件。
+
+    （真实踩过：把 natural 类的 4 个图案从 texture 改过来后，旧文件一直留着，
+    提交时就成了重复的两套图。）
+    """
+    stale = tmp_path / "texture__marble.png"      # 符合本命令命名规范 → 该清
+    foreign = tmp_path / "my_notes.png"           # 用户自己的文件 → 别碰
+    weird = tmp_path / "notes__extra.svg"         # 分类段不是已知分类 → 别碰
+    for f in (stale, foreign, weird):
+        f.write_bytes(b"x")
+    assert main(["gallery", "--out", str(tmp_path), "--size", "24x24",
+                 "--no-html"]) == 0
+    assert not stale.exists(), "陈旧孤儿文件应当被清理"
+    assert foreign.exists(), "用户自己的文件不该被清理"
+    assert weird.exists(), "不符合命名规范的文件不该被清理"
+
+
 # ---------------------------------------------------------------- new
 def test_new_prints_usable_skeleton(capsys):
     """脚手架的产物必须真的能用：有 @pattern 声明、有参数、有收录三问。"""
