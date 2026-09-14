@@ -198,9 +198,16 @@ def _tool_error(exc: BaseException, *, where: str = "") -> dict:
     }
 
 
-def _out_dir() -> Path:
+def _out_dir(*, create: bool = True) -> Path:
+    """解析输出目录。
+
+    ⚠️ ``create=False`` 是必须的：打印路径**不该有副作用**。
+    之前 `--selftest` 只是想把输出目录显示给人看，却顺手 mkdir 出一个目录，
+    结果那个目录（连同里面的渲染残渣）被 git 当成新文件提交进了仓库。
+    """
     d = Path(os.environ.get(DEFAULT_OUT_ENV) or DEFAULT_OUT_DIR)
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -431,7 +438,7 @@ def main(argv=None) -> int:
         print(f"{SERVER_NAME} mcp server v{__version__}", file=sys.stderr)
         print(f"支持的协议版本：{', '.join(SUPPORTED_PROTOCOLS)}", file=sys.stderr)
         print(f"工具：{', '.join(t['name'] for t in tool_definitions())}", file=sys.stderr)
-        print(f"输出目录：{_out_dir()}", file=sys.stderr)
+        print(f"输出目录：{_out_dir(create=False)}", file=sys.stderr)
         return 0
     if "--version" in argv:
         print(f"{SERVER_NAME}-mcp {__version__}")

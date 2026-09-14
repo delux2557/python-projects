@@ -21,3 +21,6 @@ Thumbs.db
 
 # ---- agent 工作笔记（绝不发布）----
 .workbuddy/
+
+# ---- MCP 服务器默认输出目录（运行产物，不入库）----
+pixsmith-out/

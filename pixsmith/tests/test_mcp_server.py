@@ -303,3 +303,29 @@ def test_stdout_is_not_polluted_by_tool_prints(capsys, tmp_path, monkeypatch):
     assert len([x for x in text.splitlines() if x.strip()]) == 2
     for line in text.splitlines():
         json.loads(line)          # 每一行都必须是合法 JSON
+
+
+def test_selftest_has_no_side_effects(tmp_path, monkeypatch, capsys):
+    """``--selftest`` 只该打印信息 —— **不该凭空造出目录**。
+
+    这条是补一个真实事故：它原先会顺手 mkdir 出默认输出目录，
+    于是那个目录（连同里面的渲染残渣）被 git 当成新文件提交进了仓库。
+    打印路径不该有副作用。
+    """
+    from pixsmith.mcp_server import main as mcp_main
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PIXSMITH_MCP_OUT", raising=False)
+    assert mcp_main(["--selftest"]) == 0
+    assert list(tmp_path.iterdir()) == [], \
+        f"--selftest 不该产生任何文件或目录，实际：{list(tmp_path.iterdir())}"
+    assert "输出目录" in capsys.readouterr().err
+
+
+def test_render_still_creates_the_out_dir_when_needed(tmp_path, monkeypatch):
+    """"不主动造目录"不能把正常渲染也挡了 —— 真要用时仍要建。"""
+    target = tmp_path / "deep" / "nested"
+    monkeypatch.setenv("PIXSMITH_MCP_OUT", str(target))
+    r = _tool("render", {"scene": {"dsl": 1, "size": [16, 16], "ops": []},
+                         "embed_preview": False})
+    assert r.get("isError") is not True
+    assert target.is_dir() and (target / "scene.png").exists()
