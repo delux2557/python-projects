@@ -150,3 +150,47 @@ def test_new_rejects_bad_name(capsys):
 def test_new_warns_on_duplicate_key(capsys):
     assert main(["new", "gradient"]) == 0
     assert "已存在" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- 路径 vs 图案名
+def test_missing_path_reports_file_not_found_not_unknown_pattern(tmp_path, capsys):
+    """路径拼错时必须报「文件不存在」，而不是「没有名为 'x.json' 的图案」。
+
+    后者是**文不对题**的报错：agent 会照着去改图案名，越改越远。
+    """
+    missing = tmp_path / "verify" / "typo.json"
+    for cmd in (["validate", str(missing)], ["render", str(missing)]):
+        assert main(cmd) == 2
+        err = capsys.readouterr().err
+        assert "文件不存在" in err, f"{cmd} 的报错应说明文件不存在：{err}"
+        assert "没有名为" not in err, f"{cmd} 不该把它当作图案名"
+        assert str(missing) in err
+
+
+def test_path_like_input_never_falls_back_to_pattern_name(tmp_path, capsys):
+    """含分隔符或扩展名的输入**永远**按路径处理，即使图案同名也不会被误认。"""
+    for bad in ("a/b", "a\\b", "scene.json", "x.yaml"):
+        assert main(["validate", bad]) == 2
+        assert "文件不存在" in capsys.readouterr().err, bad
+
+
+def test_bare_name_still_works_as_pattern(tmp_path):
+    """不带路径特征的名字仍然当图案名 —— 这条便利不能丢。"""
+    out = tmp_path / "a.png"
+    assert main(["render", "gradient", "--size", "16x16", "-o", str(out)]) == 0
+    assert out.exists()
+
+
+def test_output_name_derived_from_input_path(tmp_path):
+    """输入是路径时输出名从它派生（scene.json → scene.png），不是 scene.json.png。"""
+    src = tmp_path / "cover.json"
+    src.write_text('{"dsl":1,"size":[16,16],"ops":[{"op":"fill","color":"#123456"}]}',
+                   encoding="utf-8")
+    assert main(["render", str(src)]) == 0
+    assert (tmp_path / "cover.png").exists()
+    assert not (tmp_path / "cover.json.png").exists()
+
+
+def test_dir_is_rejected_as_scene_file(tmp_path, capsys):
+    assert main(["validate", str(tmp_path)]) == 2
+    assert "目录" in capsys.readouterr().err

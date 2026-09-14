@@ -69,19 +69,53 @@ def _cmd_show(args) -> int:
     return 0
 
 
+#: 出现这些特征就一定是**路径**，不再当图案名猜
+_PATH_MARKS = ("/", "\\")
+_PATH_EXTS = (".json", ".yaml", ".yml", ".toml", ".txt")
+
+
+def _looks_like_path(s: str) -> bool:
+    """判断输入是不是"像路径"。含分隔符或已知扩展名 → 是。
+
+    这条判断是为了消灭一个**文不对题**的报错：以前 `as_pattern` 的启发式是
+    "文件不存在就当成图案名"，于是 `validate output/typo.json` 会报
+    「没有名为 'output/typo.json' 的图案」—— 明明该说"文件不存在"。
+    对 agent 来说，错误的报错类型比没有报错更费 token：它会去改图案名。
+    """
+    return any(m in s for m in _PATH_MARKS) or s.lower().endswith(_PATH_EXTS)
+
+
 def _load_scene(args) -> "Scene":
-    """把命令行输入统一成 `Scene` —— 场景、旧配方、图案名三种写法都收。"""
+    """把命令行输入统一成 `Scene`：stdin / 场景文件 / 旧配方 / 图案名。
+
+    判定顺序（**先路径后图案，没有"猜"的余地**）：
+      1. ``-``          → 读 stdin
+      2. 像路径          → 必须是文件，不存在就报**文件不存在**（附带绝对路径与当前目录）
+      3. 确实是文件      → 读文件
+      4. 其余            → 图案名（配合 ``--set`` / ``--size`` / ``--background``）
+    """
     from .recipes import recipe_from_cli
     from .scene import Scene
 
-    if args.recipe == "-":
+    raw = str(args.recipe)
+    if raw == "-":
         return Scene.from_dict(json.loads(sys.stdin.read()))
-    as_pattern = (bool(args.set) or bool(args.size) or bool(args.background)
-                  or not Path(args.recipe).exists())
-    if as_pattern:
-        return Scene.from_dict(recipe_from_cli(args.recipe, args.size,
-                                               args.background, args.set))
-    return Scene.from_file(args.recipe)
+
+    path = Path(raw)
+    if _looks_like_path(raw):
+        if path.is_dir():
+            raise IsADirectoryError(f"{raw!r} 是目录，不是场景文件")
+        if not path.exists():
+            raise FileNotFoundError(
+                f"文件不存在：{raw}\n"
+                f"  已按路径解析为：{path.resolve()}\n"
+                f"  当前目录：{Path.cwd()}\n"
+                f"  如果你是想用图案名渲染，名字里不要带路径分隔符或扩展名，"
+                f"例如 `pixsmith render gradient`；可用图案见 `pixsmith list`。")
+        return Scene.from_file(path)
+    if path.exists():
+        return Scene.from_file(path)
+    return Scene.from_dict(recipe_from_cli(raw, args.size, args.background, args.set))
 
 
 def _cmd_render(args) -> int:
@@ -92,8 +126,15 @@ def _cmd_render(args) -> int:
     want_svg = (args.backend == "svg"
                 or (args.backend is None and str(args.out or "").lower().endswith(".svg")))
     backend = SvgBackend(*scene.size) if want_svg else None
-    out = args.out or (f"{args.recipe}.svg" if want_svg
-                       else (f"{args.recipe}.png" if args.recipe != "-" else "scene.png"))
+    ext = ".svg" if want_svg else ".png"
+    if args.out:
+        out = args.out
+    elif _looks_like_path(args.recipe):
+        # 输入是路径时，输出名从它派生（scene.json → scene.png），
+        # 而不是拼成 scene.json.png 那种怪东西
+        out = str(Path(args.recipe).with_suffix(ext))
+    else:
+        out = f"{args.recipe}{ext}" if args.recipe != "-" else f"scene{ext}"
 
     if args.print_recipe:
         print(scene.to_json(compact=True))

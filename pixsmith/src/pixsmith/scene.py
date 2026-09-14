@@ -224,9 +224,18 @@ class Scene:
     def report(self, backend=None) -> dict:
         """给 **agent 的"眼睛"**：agent 看不到图，所以需要程序化的间接反馈。
 
-        返回的都是"能拿来判断画对没画对"的量，而不是像素统计的堆砌：
-        全透明 → 一定画错了；非透明占比过低 → 大概率画到画布外了；
-        主色不对 → 参数传错了。
+        ⚠️ 这份报告最容易误导人的地方是 ``dominant_colors``：
+        它回答的是「**哪种颜色占的面积最多**」，而 agent 真正想问的是
+        「**我的参数生效了吗**」。两者不是一回事 —— 对角渐变的颜色分布是**梯形**的，
+        中间调占面积最多，所以 top-4 必然全是中间调，中国红一个都进不去，
+        看起来像参数传错了。**渐变本身完全没问题。**
+
+        所以除了主色，另外给两个**直接回答"参数生效没"**的探针：
+
+        - ``channel_range``：每个通道的最小/最大值跨度 —— 你设了红渐变，R 就该有跨度
+        - ``corner_colors``：四角取样 —— 渐变端点与方向的直接证据
+
+        并且在主色集中度低时，报告会**自己给出 ``hints``**，而不是指望 agent 去翻文档。
         """
         from .canvas import Canvas
 
@@ -244,38 +253,89 @@ class Scene:
             "requires": sorted(self.requires()),
             "opaque_ratio": round(float(opaque.mean()), 4),
             "fully_transparent": bool(opaque.sum() == 0),
+            "transparent_ratio": round(1.0 - float(opaque.mean()), 4),
         }
+        hints: list[str] = []
+
         if opaque.any():
             ys, xs = np.nonzero(opaque)
             rep["content_bbox"] = [int(xs.min()), int(ys.min()),
                                    int(xs.max()), int(ys.max())]
             rep["touches_edge"] = bool(xs.min() == 0 or ys.min() == 0
                                        or xs.max() == w - 1 or ys.max() == h - 1)
-            rgb = arr[..., :3][opaque].astype(np.float32) / 255.0
+            rgb8 = arr[..., :3][opaque]
+            rgb = rgb8.astype(np.float32) / 255.0
             luma = rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
             rep["mean_luma"] = round(float(luma.mean()), 4)
             rep["contrast"] = round(float(luma.std()), 4)
-            rep["dominant_colors"] = _dominant_colors(arr[..., :3][opaque])
-            rep["transparent_ratio"] = round(1.0 - float(opaque.mean()), 4)
+
+            # 探针一：通道跨度 —— 直接回答"颜色参数生效了吗"
+            rep["channel_range"] = {
+                ch: [int(rgb8[:, i].min()), int(rgb8[:, i].max())]
+                for i, ch in enumerate("rgb")}
+            # 探针二：四角取样 —— 渐变端点与方向的直接证据（内缩 2px 躲开抗锯齿边）
+            rep["corner_colors"] = {
+                "tl": _hex_at(arr, 2, 2), "tr": _hex_at(arr, w - 3, 2),
+                "bl": _hex_at(arr, 2, h - 3), "br": _hex_at(arr, w - 3, h - 3),
+            }
+            dom, coverage = _dominant_colors(rgb8)
+            rep["dominant_colors"] = dom
+            # dominant_coverage = **最多的那一种颜色**占多少像素（不是 top-4 之和）。
+            # 阈值 0.25 是实测出来的，不是拍的：
+            #   纯色 100% · 纯色+图形 98.7% · 条纹 50.3% · 棋盘 50.5% · 星空 90.5%
+            #     ↑ 这些都有"主色"，报出来有意义
+            #   渐变 118° 12.9% · 渐变 90° 8.4% · 三色渐变 18.4% · 大理石 19.2%
+            #     ↑ 这些是连续场，根本没有"主色"
+            # 注意别用 top-4 之和来判：星空 top-4 高达 94.8%，可它明明是噪点类。
+            rep["dominant_coverage"] = round(coverage, 3)
+            if coverage < 0.25:
+                hints.append(
+                    f"主色覆盖率低（最多的颜色只占 {coverage:.0%} 像素）："
+                    "这张图**没有**「主色」，多半是渐变或噪声类。"
+                    "别用 dominant_colors 判断颜色参数是否生效 —— "
+                    "请看 channel_range（通道跨度）与 corner_colors（四角取样）。")
+            if rep["opaque_ratio"] < 0.05:
+                hints.append(
+                    f"非透明像素仅占 {rep['opaque_ratio']:.1%}：内容可能大部分画到画布外了，"
+                    "或者尺寸/坐标写错。")
+        else:
+            hints.append("整幅全透明：参数没生效，或全部画到了画布外。")
+
+        if hints:
+            rep["hints"] = hints
         return rep
 
 
-def _dominant_colors(px: np.ndarray, *, top: int = 4, bits: int = 4) -> list[str]:
-    """量化后的主色（每通道保留高 ``bits`` 位）—— 用来一眼看出"颜色对不对"。"""
+def _hex_at(arr: np.ndarray, x: int, y: int) -> str:
+    """取某点的 ``#RRGGBB``（越界自动夹取）。"""
+    h, w = arr.shape[:2]
+    xi = min(max(int(x), 0), w - 1)
+    yi = min(max(int(y), 0), h - 1)
+    return "#%02X%02X%02X" % tuple(int(v) for v in arr[yi, xi, :3])
+
+
+def _dominant_colors(px: np.ndarray, *, top: int = 4, bits: int = 4
+                     ) -> tuple[list[str], float]:
+    """量化后的主色 + **主色覆盖率**。
+
+    ``coverage`` 是**最多的那一种颜色**占的像素比例（不是 top-N 之和）——
+    它是判断"这张图到底有没有主色"的唯一可靠依据，见 `report()` 里的阈值说明。
+    """
     if px.size == 0:
-        return []
+        return [], 0.0
     q = (px >> (8 - bits)).astype(np.uint16)
     keys = (q[:, 0].astype(np.uint32) << (bits * 2)) | \
            (q[:, 1].astype(np.uint32) << bits) | q[:, 2].astype(np.uint32)
     vals, counts = np.unique(keys, return_counts=True)
     order = np.argsort(counts)[::-1][:top]
-    out = []
     scale = 255.0 / ((1 << bits) - 1)
+    out = []
     for i in order:
         k = int(vals[i])
-        r = (k >> (bits * 2)) & ((1 << bits) - 1)
-        g = (k >> bits) & ((1 << bits) - 1)
-        b = k & ((1 << bits) - 1)
-        out.append("#%02X%02X%02X" % (round(r * scale), round(g * scale),
-                                      round(b * scale)))
-    return out
+        out.append("#%02X%02X%02X" % (
+            round(((k >> (bits * 2)) & ((1 << bits) - 1)) * scale),
+            round(((k >> bits) & ((1 << bits) - 1)) * scale),
+            round((k & ((1 << bits) - 1)) * scale)))
+    top_order = np.argsort(counts)[::-1]
+    coverage = float(counts[top_order[0]]) / float(counts.sum())
+    return out, coverage

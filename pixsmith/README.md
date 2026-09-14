@@ -364,7 +364,7 @@ gallery/            由 CLI 生成的图案画廊（含矢量版）
 ## 测试
 
 ```bash
-pytest          # 293 passed
+pytest          # 303 passed
 ```
 
 六个层次的验证：
@@ -424,6 +424,7 @@ pixsmith spec --json --only marble   # 单个图案的规格（含参数类型�
 pixsmith spec --json --kind verb     # 全部动词的规格
 pixsmith validate scene.json         # 只校验不渲染（省一轮往返）
 pixsmith --json-errors render x.json # 错误也是机器可读的 JSON
+pixsmith render x.json --report      # 自检报告：channel_range / corner_colors / hints
 ```
 
 ## License

@@ -261,3 +261,74 @@ def test_report_flags_fully_transparent_scene():
     rep = scene.report()
     assert rep["fully_transparent"] is True
     assert rep["opaque_ratio"] == 0.0
+    assert rep["hints"], "全透明必须给出提示"
+
+
+# ---------------------------------------------------------------- report 探针
+def _rep(ops, size=(320, 320)):
+    return Scene.from_dict({"dsl": 1, "size": list(size), "ops": ops}).report()
+
+
+def test_report_gives_probes_that_answer_did_my_params_work():
+    """``channel_range`` 与 ``corner_colors`` 是直接回答"参数生效没"的探针。
+
+    起因：对角渐变的 ``dominant_colors`` 全是中间调（面积最多），中国红一个都进不去，
+    看起来像参数传错了 —— 而渐变其实完全正确。所以必须另给两个探针。
+    """
+    rep = _rep([{"op": "linear_gradient", "begin": "#0A1730", "end": "#C8102E",
+                 "angle": 118}])
+    r_lo, r_hi = rep["channel_range"]["r"]
+    assert r_lo < 30 and r_hi > 180, f"红通道应有跨度，实际 {r_lo}→{r_hi}"
+    corners = rep["corner_colors"]
+    assert set(corners) == {"tl", "tr", "bl", "br"}
+    # 118° 的起点在左下 → 那一角应当最红
+    assert corners["bl"].startswith("#C"), corners
+    assert corners["tr"].startswith("#0"), corners
+
+
+def test_report_hints_fire_on_gradient_but_not_on_flat_colors():
+    """主色覆盖率的判别线是**实测标定**的（0.25），不是拍脑袋 —— 这里把它钉住。
+
+    标定数据（320×320 实测）：
+      纯色 100% · 纯色+图形 98.7% · 条纹 50.3% · 棋盘 50.5% · 星空 90.5%  → 有主色
+      渐变 118° 12.9% · 渐变 90° 8.4% · 三色渐变 18.4% · 大理石 19.2%      → 没有主色
+    """
+    for ops, coverage_min in (
+        ([{"op": "fill", "color": "#C8102E"}], 0.9),
+        ([{"op": "pattern", "pattern": "stripes"}], 0.4),
+        ([{"op": "pattern", "pattern": "starfield"}], 0.5),
+    ):
+        rep = _rep(ops)
+        assert rep["dominant_coverage"] >= coverage_min, rep["dominant_coverage"]
+        assert "hints" not in rep, f"{ops[0]} 有主色，不该给主色提示：{rep.get('hints')}"
+
+    for ops in (
+        [{"op": "linear_gradient", "begin": "#0A1730", "end": "#C8102E", "angle": 118}],
+        [{"op": "linear_gradient", "begin": "#0A1730", "end": "#C8102E", "angle": 90}],
+        [{"op": "pattern", "pattern": "marble"}],
+    ):
+        rep = _rep(ops)
+        assert rep["dominant_coverage"] < 0.25, rep["dominant_coverage"]
+        assert rep["hints"], f"{ops[0]} 应给出提示"
+        joined = " ".join(rep["hints"])
+        assert "channel_range" in joined and "corner_colors" in joined
+
+
+def test_report_hints_on_almost_empty_canvas():
+    """内容几乎全是透明 → 大概率画到画布外了，也要提示。"""
+    rep = _rep([{"op": "disc", "cx": -200, "cy": -200, "r": 30, "color": "#FFF"}],
+               size=(200, 200))
+    assert rep["opaque_ratio"] < 0.05
+    assert any("画布外" in h for h in rep.get("hints", [])), rep.get("hints")
+
+
+def test_report_keeps_machine_readable_shape():
+    """提示是附加信息，不能破坏原有字段的稳定性。"""
+    rep = _rep([{"op": "fill", "color": "#123456"}])
+    for key in ("size", "layers", "ops", "requires", "opaque_ratio",
+                "fully_transparent", "transparent_ratio", "content_bbox",
+                "touches_edge", "mean_luma", "contrast", "dominant_colors",
+                "dominant_coverage", "channel_range", "corner_colors"):
+        assert key in rep, f"缺少字段 {key}"
+    assert rep["dominant_coverage"] == 1.0
+    assert rep["fully_transparent"] is False

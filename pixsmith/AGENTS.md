@@ -1,6 +1,6 @@
 # AGENTS.md — 给 AI agent 的操作手册
 
-> 对应版本：v0.3.1
+> 对应版本：v0.3.2
 > 给人读的文档在 [`README.md`](README.md) 与 [`docs/能力边界.md`](docs/能力边界.md)；
 > 这一份只讲**该怎么做**，不讲背景。权威能力清单以 `pixsmith spec --json` 为准（它从代码生成，不会过期）。
 
@@ -90,21 +90,37 @@ pixsmith render scene.json --report
 ```
 
 ```json
-{"size": [1920,1080], "opaque_ratio": 0.98, "fully_transparent": false,
+{"size": [1920,1080], "opaque_ratio": 1.0, "fully_transparent": false,
  "content_bbox": [0,0,1919,1079], "touches_edge": true,
- "dominant_colors": ["#0A1730","#C8102E","#F2C14E"],
- "mean_luma": 0.21, "contrast": 0.44}
+ "mean_luma": 0.16, "contrast": 0.03,
+ "channel_range": {"r": [10,200], "g": [16,23], "b": [46,48]},
+ "corner_colors": {"tl": "#67142F", "tr": "#0B1730", "bl": "#C7102E", "br": "#6B132F"},
+ "dominant_colors": ["#661122","#771122","#551122","#881122"],
+ "dominant_coverage": 0.16,
+ "hints": ["主色覆盖率低（最多的颜色只占 16% 像素）：这张图**没有**「主色」…"]}
 ```
 
-怎么判断：
+**⭐ 判断"颜色参数生效了没"，要用 `channel_range` 和 `corner_colors`，不要用 `dominant_colors`。**
 
-| 看到什么 | 说明什么 |
-|---|---|
-| `fully_transparent: true` | **一定画错了** —— 参数没生效，或全画到画布外了 |
-| `opaque_ratio` 过低 | 大概率画到画布外了 |
-| `dominant_colors` 与预期不符 | 颜色参数传错了 |
-| `touches_edge: true` | 内容贴边（可能是有意的，也可能是尺寸没算对） |
-| `contrast` 接近 0 | 整幅几乎单色 |
+理由是一个真实的坑：`dominant_colors` 回答的是「**哪种颜色占的面积最多**」，
+而你真正想问的是「**我设的颜色参数生效了吗**」—— 这是两个不同的问题。
+**对角渐变的颜色分布是梯形的，中间调占面积最多**，所以 top-4 必然全是中间调，
+你设的端点色一个都进不去。上面这个例子里 `dominant_colors` 全是中国红渐变的中间调紫，
+看着像参数传错了 —— 而渐变完全正确（`bl: #C7102E` 就是端点色，`r` 跨度 10→200）。
+
+| 字段 | 回答什么问题 | 怎么用 |
+|---|---|---|
+| `channel_range` | **参数生效了吗** | 设了红渐变 → `r` 必须有跨度。跨度接近 0 说明颜色没生效 |
+| `corner_colors` | **渐变端点/方向对吗** | 四角取样，直接看到端点色 |
+| `dominant_coverage` | 这张图**有没有**主色 | ≥ 25% 才说明有主色，此时 `dominant_colors` 才有参考价值 |
+| `dominant_colors` | 面积最多的颜色 | **仅在有主色时可用**（图标 / 纯色 / 条纹这类） |
+| `fully_transparent` | 是不是完全没画出来 | `true` → **一定画错了** |
+| `opaque_ratio` | 内容占了多少面积 | 过低 → 大概率画到画布外了 |
+| `touches_edge` | 内容是否贴边 | 可能是有意的，也可能是尺寸没算对 |
+| `contrast` | 整幅有没有明暗层次 | ⚠️ 渐变场景里它天然很低（实测 0.03），**别拿它当"颜色不对"的证据** |
+
+> `hints` 字段会在这些情况**自己说出来**（比如"主色覆盖率低，别用 dominant_colors 判断"）。
+> **先看 hints，再看数字。**
 
 ---
 
