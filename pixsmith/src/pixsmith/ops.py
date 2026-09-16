@@ -31,8 +31,9 @@ from .backend import (DRAW_METHODS, FRAME_METHODS, GRADIENT_METHODS,
                       UNARY_METHODS)
 from .params import Param, Registry, Spec
 
-__all__ = ["VERBS", "OP_KEYS", "apply_ops", "expanded_requirements",
-           "check_verbs", "DRAW_VERBS", "FILTER_VERBS", "RESERVED"]
+__all__ = ["VERBS", "OP_KEYS", "PATTERN_OP_KEYS", "apply_ops",
+           "expanded_requirements", "check_verbs", "DRAW_VERBS", "FILTER_VERBS",
+           "RESERVED"]
 
 VERBS = Registry("动词")
 
@@ -41,6 +42,9 @@ RESERVED = ("op", "note")
 #: 场景 JSON 允许的顶层键（`pattern`/`params` 是"等价旧配方"的语法糖）
 OP_KEYS = ("dsl", "size", "aspect", "background", "layers", "ops", "note",
            "pattern", "params")
+#: `pattern` 元 op 允许的顶层键 —— 图案自己的参数必须嵌在 `params` 里。
+#: 多出来的键**一律报错**，理由见 `_check_pattern_keys`。
+PATTERN_OP_KEYS = ("op", "note", "pattern", "params")
 
 
 def _declare(key: str, summary: str, params: list[Param], category: str,
@@ -148,6 +152,38 @@ def _split(op: dict) -> tuple[str, dict]:
     return str(name), args
 
 
+def _check_pattern_keys(i: int, args: dict, spec) -> None:
+    """校验 `pattern` 元 op 的**顶层键**。
+
+    为什么必须单独查（这个洞很隐蔽）：
+    `apply_ops` 对 pattern 只做 `spec.bind(args.get("params"))` ——
+    也就是说**只有 `params` 会被 bind，op 上其它键既不 bind 也不报错，直接被丢掉**。
+    于是 `{"op": "pattern", "pattern": "star", "points": 3}`
+    （参数忘了嵌进 `params`）会渲染成功、退出码 0，而 `points` 根本没生效。
+    这正好踩中项目的立身之本「不静默降级」：agent 拿到 exit 0 和一张
+    参数没生效的图，会当成成功结果继续往下走 —— 它没有眼睛，看不出图不对。
+
+    场景顶层键、图层键、动词名、动词参数名都已经是严格校验的，
+    这里补上最后一层，四层才对称。`spec` 为 None 时（图案不存在）
+    只报未知键，注册与否由 `check_verbs` 上游负责。
+    """
+    extra = set(args) - set(PATTERN_OP_KEYS)
+    if not extra:
+        return
+    bad = sorted(extra)
+    msg = f"[{i}] pattern op 不认识键 {bad}（可用：{list(PATTERN_OP_KEYS)}）"
+    if spec is not None:
+        known = {p.name for p in spec.params}
+        # 名字对、层级错 —— 最常犯的一种，专门给一句可直接照抄的提示
+        misplaced = [k for k in bad if k in known]
+        if misplaced:
+            msg += (f"\n    → {'、'.join(misplaced)} 是 {spec.key!r} 的合法参数，"
+                    f"但要嵌在 params 里："
+                    f"{{'op': 'pattern', 'pattern': {spec.key!r}, "
+                    f"'params': {{{misplaced[0]!r}: …}}}}")
+    raise KeyError(msg)
+
+
 def check_verbs(ops) -> None:
     """校验 op 名合法（动词表里有，或是指向已注册图案的 `pattern` 元 op）。
 
@@ -162,6 +198,7 @@ def check_verbs(ops) -> None:
                 raise KeyError(f"[{i}] pattern op 缺少 'pattern' 字段")
             if str(key) not in PATTERNS:
                 raise KeyError(f"[{i}] 没有名为 {key!r} 的图案（可用：{PATTERNS.names()}）")
+            _check_pattern_keys(i, args, PATTERNS.get(str(key)))
             continue
         if name not in VERBS:
             raise KeyError(f"[{i}] 未知动词 {name!r}（可用：{VERBS.names()}）")
@@ -171,6 +208,8 @@ def apply_ops(backend, ops) -> None:
     """把一串 op 依次作用到后端上。
 
     - 每个 op 的参数先过 `Spec.bind()`（类型转换 + 未知键拒绝）
+    - `pattern` 元 op 的顶层键也过一遍 `_check_pattern_keys()`（它只 bind `params`，
+      不查的话顶层多余键会被静默丢掉）
     - 然后按名字分发给后端 —— 这就是全部的"执行"逻辑
     """
     from .patterns import REGISTRY as PATTERNS
@@ -181,6 +220,7 @@ def apply_ops(backend, ops) -> None:
             if not key:
                 raise KeyError(f"[{i}] pattern op 缺少 'pattern' 字段")
             spec = PATTERNS.get(str(key))
+            _check_pattern_keys(i, args, spec)
             spec.fn(backend, **spec.bind(args.get("params")))
             continue
         spec = VERBS.get(name)

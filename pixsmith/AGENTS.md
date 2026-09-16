@@ -1,6 +1,6 @@
 # AGENTS.md — 给 AI agent 的操作手册
 
-> 对应版本：v0.5.0
+> 对应版本：v0.5.1
 > 给人读的文档在 [`README.md`](README.md) 与 [`docs/能力边界.md`](docs/能力边界.md)；
 > 这一份只讲**该怎么做**，不讲背景。权威能力清单以 `pixsmith spec --json` 为准（它从代码生成，不会过期）。
 
@@ -154,6 +154,7 @@ pixsmith --json-errors render nope
 | `unknown verb 'xxx'` | 动词名写错 | `pixsmith spec --json --kind verb` 看可用动词 |
 | `没有名为 'xxx' 的图案或动词` | 图案名写错 | `pixsmith list --json` |
 | `不认识参数：['xxx']` | 参数名写错 | `pixsmith spec --json --only <key>` |
+| `pattern op 不认识键 ['xxx']` | **参数忘了嵌进 `params`**（`pattern` 元 op 的键写在了 op 顶层） | 改成 `{"op":"pattern","pattern":"star","params":{"points":3}}`。报错里会直接给这句 |
 | `后端 SvgBackend 不支持：…` | 用了矢量后端表达不了的效果 | 换位图后端（去掉 `-o *.svg`），或改用 `validate` 报出的替代组合 |
 | `不支持的 DSL 版本` | `dsl` 字段写错 | 场景必须写 `"dsl": 1` |
 | `场景缺少 'size'` | 没给尺寸 | 给 `"size": [w, h]` 或 `"aspect": "16:9"` |

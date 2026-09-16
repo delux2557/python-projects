@@ -203,6 +203,44 @@ def test_scene_rejects_bad_input():
         Scene.from_dict({"dsl": 1})
 
 
+def test_pattern_op_rejects_unknown_keys():
+    """`pattern` 元 op 的顶层键必须严格校验 —— 补上最后一层。
+
+    这个洞很隐蔽：`apply_ops` 对 pattern 只 bind `params`，
+    所以参数忘了嵌进 `params`（或名字写错）时，多余键既不 bind 也不报错，
+    直接被丢掉 —— 渲染成功、退出码 0，而参数根本没生效。
+    对看不见图的 agent 来说，这等于"静默产出一张错图"，正好踩中项目的立身之本。
+
+    对照：场景顶层键 / 图层键 / 动词名 / 动词参数名早已是严格校验的，
+    四层里只有这一层漏了，所以这不是新约束，是把既有约束补对称。
+    """
+    # 正确写法：参数嵌在 params 里 —— 必须能跑通
+    Scene.from_dict({"dsl": 1, "size": [10, 10],
+                     "ops": [{"op": "pattern", "pattern": "star",
+                              "params": {"points": 3}}]})
+
+    # 层级写错：`points` 是 star 的合法参数，但写在了 op 顶层 → 报错，且提示要嵌 params
+    with pytest.raises(KeyError, match="params"):
+        Scene.from_dict({"dsl": 1, "size": [10, 10],
+                         "ops": [{"op": "pattern", "pattern": "star",
+                                  "points": 3}]})
+
+    # 完全不存在的键 → 一样报错
+    with pytest.raises(KeyError, match="不认识键"):
+        Scene.from_dict({"dsl": 1, "size": [10, 10],
+                         "ops": [{"op": "pattern", "pattern": "star", "zzz": 1}]})
+
+    # 名词混淆：图案 star 用 radius，动词 star 用 r —— 写成动词的名字也要拦住
+    with pytest.raises(KeyError, match="params"):
+        Scene.from_dict({"dsl": 1, "size": [10, 10],
+                         "ops": [{"op": "pattern", "pattern": "star", "r": 20}]})
+
+    # 报错里要带上"可在哪里查"的信息，agent 才能自己改对
+    with pytest.raises(KeyError, match="可用"):
+        Scene.from_dict({"dsl": 1, "size": [10, 10],
+                         "ops": [{"op": "pattern", "pattern": "star", "zzz": 1}]})
+
+
 def test_scene_rejects_size_mismatch_with_backend():
     scene = Scene.from_dict({"dsl": 1, "size": [40, 40], "ops": []})
     with pytest.raises(ValueError, match="尺寸"):
