@@ -105,12 +105,28 @@ class Layer:
 
 @dataclass
 class Scene:
-    """一张图的完整描述：尺寸、底色、若干层。"""
+    """一张图的完整描述：尺寸、底色、若干层、可选的整幅变换。
+
+    ``transform`` 与图层里写的 ``{"op": "transform"}`` 语义**不同，也不冗余**：
+
+    ==============================  ==========================================
+    场景级 ``transform``             作用在**最终合成结果**上 →「整幅图的姿态」
+    图层里的 ``{"op":"transform"}``  作用在**该层已绘内容**上 →「画 A → 转 30° → 画 B」
+    ==============================  ==========================================
+
+    为什么不能只留图层里的那个：多层场景里**没有"最后"这个位置** ——
+    每层各画进自己的子画布再 `composite` 上来，op 只能影响它所在那一层。
+    所以「把整张成品转 15°」这个需求必须由场景级字段承接。
+    """
 
     size: tuple[int, int]
     background: str | None = None
     layers: list[Layer] = field(default_factory=list)
     note: str | None = None
+    #: 整幅仿射变换（`transform` 动词的同名参数），在全部图层合成**之后**套用。
+    #: 存**原始 dict**（不是 `bind()` 归一化后的结果）—— 归一化会把每个参数的默认值
+    #: 都填进去，`to_dict()` 就不是忠实往返了。
+    transform: dict | None = None
 
     # ------------------------------------------------------------ 构造
     @classmethod
@@ -143,8 +159,19 @@ class Scene:
         if "pattern" in obj:                               # 语法糖：等价旧配方
             layers.append(Layer(ops=[{"op": "pattern", "pattern": obj["pattern"],
                                       "params": dict(obj.get("params") or {})}]))
+
+        # 场景级 transform：**构造时就校验**，不留到渲染 ——
+        # 和 `Layer.__post_init__` 里那句 `check_verbs` 同一个理由：早一步报错，
+        # agent 就少一次"生成 → 跑 → 改"的循环。
+        tf = obj.get("transform")
+        if tf is not None:
+            if not isinstance(tf, dict):
+                raise TypeError(f"场景的 transform 必须是对象，收到 {type(tf).__name__}")
+            from .ops import VERBS
+            VERBS.get("transform").bind(tf)                # 未知键/类型错误在这里就炸
+            tf = dict(tf)
         return cls(size=size, background=obj.get("background"), layers=layers,
-                   note=obj.get("note"))
+                   note=obj.get("note"), transform=tf)
 
     @classmethod
     def from_json(cls, text: str) -> "Scene":
@@ -159,6 +186,12 @@ class Scene:
         out: dict = {"dsl": DSL_VERSION, "size": list(self.size)}
         if self.background is not None:
             out["background"] = self.background
+        # transform 要在 compact 的提前 return **之前**写 —— 它是"整幅图"的属性，
+        # 和单层/多层无关，漏在这里就会静默丢掉（`export --sizes` 正是靠 to_dict 传下去的）
+        # `is not None` 而不是真值判断：`{}` 是合法的恒等变换，
+        # 真值判断会让它静默消失，`to_dict()` 就不是忠实往返了
+        if self.transform is not None:
+            out["transform"] = dict(self.transform)
         if compact:                                        # 单层且无混合 → 直接铺开
             if len(self.layers) == 1 and self.layers[0].blend == "normal" \
                     and self.layers[0].opacity == 1.0:
@@ -186,8 +219,12 @@ class Scene:
 
     def check_backend(self, backend) -> None:
         """渲染前预检：后端缺能力就直接报错（不静默降级，见 `backend.py`）。"""
-        check_ops(backend, expanded_requirements(self.all_ops()),
-                  where="scene")
+        ops = expanded_requirements(self.all_ops())
+        if self.transform is not None:
+            # 场景级 transform 不是 op，不带 `_requires` —— 手工补一条进来，
+            # 否则"后端不支持它"这件事会被漏检（现在两个后端都支持，但别靠这个巧合）
+            ops = ops + [{"op": "transform", "_requires": ["transform"]}]
+        check_ops(backend, ops, where="scene")
 
     # ------------------------------------------------------------ 渲染
     def render(self, backend=None):
@@ -215,6 +252,10 @@ class Scene:
             sub = backend.new_layer()
             apply_ops(sub, layer.ops)
             backend.composite(sub, layer.blend, layer.opacity)
+        # 场景级变换：在**全部图层合成之后**套用 —— 这才是"整幅图"的姿态
+        if self.transform is not None:
+            from .ops import VERBS
+            backend.transform(**VERBS.get("transform").bind(self.transform))
         return backend
 
     def render_to_file(self, path, backend=None, **kw) -> str:

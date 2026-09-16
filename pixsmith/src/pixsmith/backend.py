@@ -23,8 +23,9 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = ["FRAME_METHODS", "DRAW_METHODS", "GRADIENT_METHODS",
-           "UNARY_METHODS", "RASTER_ONLY_METHODS", "ALL_METHODS",
-           "backend_capabilities", "check_ops", "UnsupportedOperation"]
+           "UNARY_METHODS", "TRANSFORM_METHODS", "RASTER_ONLY_METHODS",
+           "ALL_METHODS", "backend_capabilities", "check_ops",
+           "UnsupportedOperation"]
 
 # 帧与合成
 FRAME_METHODS = ("fill", "new_layer", "composite", "to_png", "save")
@@ -36,11 +37,15 @@ GRADIENT_METHODS = ("linear_gradient", "radial_gradient")
 # 一元算子（对整幅已绘内容做变换）
 UNARY_METHODS = ("blur", "adjust", "posterize", "solarize", "invert",
                  "grayscale", "grain")
+# 几何变换（对整幅已绘内容做仿射变换）。
+# 和 UNARY_METHODS 的区别只有一条：**一元算子改颜色，它改几何**。
+# 两者都有"作用于目前已画内容"的语义，所以矢量端都靠 `_wrap()` 实现。
+TRANSFORM_METHODS = ("transform",)
 # 只有位图后端才有意义的扩展（矢量后端表达不了逐像素域）
 RASTER_ONLY_METHODS = ("paint", "noise_texture", "colorfield")
 
 ALL_METHODS = (FRAME_METHODS + DRAW_METHODS + GRADIENT_METHODS
-               + UNARY_METHODS + RASTER_ONLY_METHODS)
+               + UNARY_METHODS + TRANSFORM_METHODS + RASTER_ONLY_METHODS)
 
 
 class UnsupportedOperation(RuntimeError):

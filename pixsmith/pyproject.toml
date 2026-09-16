@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pixsmith"
-version = "0.7.0"
+version = "0.8.0"
 description = "用代码生成背景 / 底纹 / 装饰件，输出 PNG 或 SVG —— 不找素材、可复现、对 AI agent 友好"
 readme = "README.md"
 requires-python = ">=3.10"

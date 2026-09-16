@@ -52,6 +52,7 @@ SVG_CAPABILITIES = frozenset((
     "regular_polygon", "star", "erase_disc",
     "linear_gradient", "radial_gradient",
     "blur", "adjust", "posterize", "solarize", "invert", "grayscale",
+    "transform",
 ))
 
 
@@ -363,6 +364,31 @@ class SvgBackend:
         return self._wrap(f'filter="url(#{fid})"')
 
     # ------------------------------------------------------------ 输出
+    def transform(self, *, rotate=0.0, scale=1.0, translate=None, pivot=None,
+                  flip="none", crop=None) -> "SvgBackend":
+        """整幅仿射变换 —— 矢量端**就这么一下**：把已绘内容包进 ``<g transform="matrix(…)">``。
+
+        这正是本文件开头那条机制的又一次套用：一元算子（blur / adjust / …）的语义是
+        "对**目前已画的内容**做变换"，而仿射变换的语义**完全相同**，所以映射是天然的。
+        而且矢量端没有"重采样"这回事，所以旋转缩放是**无损、精确**的 ——
+        位图端是双线性重采样会略软，这是两端固有的射程差别。
+
+        矩阵来自 `geometry.affine_matrix`，与位图后端**共用同一份**：
+        两端的旋转中心、镜像轴因此必然重合（这比"两边各写一遍三角函数"可靠得多）。
+
+        坐标是连续坐标（像素 i 的中心在 i + 0.5），而 SVG 的用户坐标系里像素 i 覆盖
+        ``[i, i+1]`` —— 两者的"画布中心"都是 ``(W/2, H/2)``，所以不需要额外补偿。
+        """
+        from .geometry import affine_is_identity, affine_matrix
+
+        m = affine_matrix(size=self.size, rotate=rotate, scale=scale,
+                          translate=translate, pivot=pivot, flip=flip, crop=crop)
+        if affine_is_identity(m):
+            return self
+        a, b, c, d, e, f = m
+        return self._wrap(f'transform="matrix({_n(a)} {_n(b)} {_n(c)} '
+                          f'{_n(d)} {_n(e)} {_n(f)})"')
+
     def to_svg(self) -> str:
         w, h = self.size
         parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '

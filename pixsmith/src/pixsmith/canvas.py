@@ -41,6 +41,7 @@ _CAPABILITIES = frozenset((
     "regular_polygon", "star", "erase_disc",
     "linear_gradient", "radial_gradient",
     "blur", "adjust", "posterize", "solarize", "invert", "grayscale", "grain",
+    "transform",
 ))
 
 
@@ -496,6 +497,37 @@ class Canvas:
     def grain(self, amount=0.05, seed=0, mono=True) -> "Canvas":
         self.buf = _filters.grain(self.buf, float(amount), seed=int(seed),
                                   mono=bool(mono))
+        return self
+
+    def transform(self, *, rotate=0.0, scale=1.0, translate=None, pivot=None,
+                  flip="none", crop=None) -> "Canvas":
+        """整幅仿射变换：旋转 / 等比缩放 / 平移 / 镜像 / 取景。**画布尺寸不变。**
+
+        为什么"不改尺寸"不是偷懒
+        ------------------------
+        改尺寸的缩放在矢量域里天然是改 ``viewBox``（一次性设定），在位图域里是重采样 ——
+        两者**不是同一件事**（`filters.resize` 的 docstring 记着这条，所以它没进 DSL）。
+        而"在固定视口里变换已绘内容"两端的语义是同一个：
+        矢量端是 ``<g transform="matrix(…)">``，位图端就是这一次重采样。
+        想真的改输出尺寸，请改场景的 ``size`` 或用 `export --sizes`。
+
+        位图端的三个诚实交代
+        --------------------
+        - 重采样是**双线性**，所以旋转/放大后边缘会**略软**（矢量端无损、精确）。
+          这是两个后端固有的射程差别，不是"不一致" —— 和 `blur` 的一端近似一端精确同理。
+        - 越界区域（旋转后露出的四角）**置为透明**，不是夹取边缘 ——
+          夹取会把最外圈像素拉成长条。`--report` 里的 `transparent_ratio` 会如实变高。
+        - 参数全默认（等价恒等变换）时**直接返回**，不白跑一轮重采样。
+
+        矩阵由 `geometry.affine_matrix` 生成，与矢量后端**共用同一份** ——
+        因此两端的旋转中心、镜像轴必然重合。
+        """
+        from .geometry import affine_is_identity, affine_matrix
+
+        m = affine_matrix(size=self.size, rotate=rotate, scale=scale,
+                          translate=translate, pivot=pivot, flip=flip, crop=crop)
+        if not affine_is_identity(m):
+            self.buf = _filters.affine_resample(self.buf, m)
         return self
 
     # ============================================================ 图层与合成

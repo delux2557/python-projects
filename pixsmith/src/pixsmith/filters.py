@@ -23,7 +23,7 @@ import numpy as np
 
 __all__ = ["blur", "box_blur", "adjust", "posterize", "solarize", "invert",
            "grayscale", "grain", "warp_field", "sample_bilinear", "resize",
-           "hue_saturation_matrix"]
+           "affine_resample", "hue_saturation_matrix"]
 
 # Rec.709 亮度权重（与 CSS/SVG 的 saturate 一致）
 _LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
@@ -267,6 +267,10 @@ def resize(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
     ⚠️ 这是**库函数**，不是 DSL 动词 —— 矢量域里的"缩放"是改 ``viewBox``（一次性设定），
     和位图域"对已绘内容做变换"不是同一件事。把它塞进场景 op 列表会破坏双后端的语义一致性，
     所以不进（见 docs/能力边界.md）。
+
+    **要"变换已绘内容"的缩放请用 `affine_resample`** —— 那个才是双后端同语义的
+    （矢量端对应 ``<g transform="matrix(…)">``），也是 DSL 里 ``transform`` 动词的实现。
+    一句话分工：**改画布尺寸 = `resize`（不进 DSL）；改内容姿态 = `affine_resample`（进 DSL）。**
     """
     h, w = rgba.shape[:2]
     tw, th = max(1, int(width)), max(1, int(height))
@@ -279,4 +283,41 @@ def resize(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
     pm = _premultiply(src)
     out = sample_bilinear(pm, np.broadcast_to(xs, (th, tw)),
                           np.broadcast_to(ys, (th, tw)))
+    return _unpremultiply(out, out[..., 3:4])
+
+
+def affine_resample(rgba: np.ndarray, m) -> np.ndarray:
+    """按仿射矩阵 ``m``（``geometry.Affine`` 的 6 元组）重采样整幅图，**尺寸不变**。
+
+    三条都与"旋转后边缘会不会脏"直接相关，缺一条都会出可见的瑕疵：
+
+    1. **预乘 alpha**：直通道直接插值时，透明像素的 RGB（通常是 0,0,0）会被混进来，
+       旋转/缩放后的边缘会泛一圈黑边。和 `blur` 踩过的是同一个坑。
+    2. **越界置透明，而不是夹取边缘**：`sample_bilinear` 自己的策略是夹取
+       （对域扭曲是对的 —— 位移场几乎跑不出画布），但仿射**旋转**后四角必然取样到画布外，
+       夹取会把最外圈像素拉成长条糊出去，看着像拖影。
+    3. **反向映射（目标找源）**：正向映射（源找目标）在放大时会在目标上留下空洞。
+    """
+    from .geometry import affine_invert
+
+    h, w = rgba.shape[:2]
+    if h < 1 or w < 1:
+        return rgba.astype(np.float32, copy=True)
+    src = (rgba if rgba.dtype == np.float32
+           else rgba.astype(np.float32) / np.float32(255.0))
+
+    # 目标像素中心（连续坐标：像素 i 的中心在 i + 0.5）→ 逆变换 → 源连续坐标
+    ia, ib, ic, idd, ie, iff = affine_invert(m)
+    gx = (np.arange(w, dtype=np.float32) + 0.5)[None, :]
+    gy = (np.arange(h, dtype=np.float32) + 0.5)[:, None]
+    xs = ia * gx + ic * gy + ie
+    ys = ib * gx + idd * gy + iff
+
+    pm = _premultiply(src)
+    # `sample_bilinear` 工作在**索引空间**（像素中心 = 整数），所以这里减 0.5
+    out = sample_bilinear(pm, xs - np.float32(0.5), ys - np.float32(0.5))
+    # 图像在连续坐标里覆盖 [0, w] × [0, h]；外面直接透明（见 docstring 第 2 条）
+    outside = (xs < 0.0) | (xs > np.float32(w)) | (ys < 0.0) | (ys > np.float32(h))
+    if outside.any():
+        out[outside] = 0.0
     return _unpremultiply(out, out[..., 3:4])

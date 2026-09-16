@@ -102,11 +102,16 @@ scene = Scene.from_dict({
     "ops": [{"op": "linear_gradient", "begin": "#0A1730", "end": "#C8102E"},
             {"op": "pattern", "pattern": "marble", "params": {"seed": 7}},
             {"op": "blur", "radius": 8}],
+    "transform": {"rotate": 15},        # 整张成品的仿射变换：旋转/缩放/镜像/取景
 })
 scene.render().save("cover.png")                       # 位图
 scene.render(SvgBackend(1920, 1080)).save("cover.svg")  # 矢量
 scene.report()                                          # 自检报告
 ```
+
+`transform` 也是**图层级**的 op（`{"op": "transform", "rotate": 30}`），
+作用于**该层已绘内容** —— 于是能做「画 A → 转 30° → 画 B」。两个位置语义不同、都不冗余：
+多层场景里没有"最后"这个位置，所以"整张成品"只能由场景级字段承接。
 
 ---
 
@@ -179,6 +184,7 @@ scene.py          Scene：尺寸 + 底色 + 图层 + 混合（唯一的编排者
 | 强项 | 逐像素纹理、噪点、非线性滤镜、模糊 | 无损缩放、体积小、可编辑 |
 | 图案支持 | **23 / 23** | **15 / 23**（其余 8 个显式声明了为什么不能） |
 | 一元算子 | 全部（`grain` 也可） | blur / adjust / posterize / solarize / invert / grayscale |
+| 整幅仿射 `transform` | ✅ 双线性重采样（放大后略软） | ✅ `<g transform="matrix(…)">` —— **无损、精确** |
 | 逐像素场 `paint` | ✅ | ❌ 矢量域没有对应物 |
 
 不支持的那 8 个是：`stripes` `checker` `noise` `vignette` `starfield`(开银河带时)

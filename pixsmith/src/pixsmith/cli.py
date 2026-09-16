@@ -580,7 +580,7 @@ def _cmd_spec(args) -> int:
                  if info.get("unsupported") else "")
         print(f"  {name:<8} {info['note']}{extra}")
     print(f"\n动词（{len(man['verbs'])}）：")
-    for cat in ("frame", "draw", "gradient", "filter"):
+    for cat in _verb_category_order(man["verbs"]):
         keys = [k for k, v in man["verbs"].items() if v["category"] == cat]
         if keys:
             print(f"  {cat:<9} " + " ".join(sorted(keys)))
@@ -592,6 +592,19 @@ def _cmd_spec(args) -> int:
     print("\n加 --json 拿机器可读的完整清单（含每个参数的默认值/类型/后端支持）。")
     print("清单较大时可缩小：`spec --json --only marble` 或 `--kind verb`。")
     return 0
+
+
+def _verb_category_order(verbs: dict) -> list[str]:
+    """动词分类的展示顺序：**从清单派生**，不写死。
+
+    写死过一次就学到了：`for cat in ("frame", "draw", "gradient", "filter")` 这种写法，
+    新加一个分类时人类可读的 `spec` 输出会**静默少一类** —— 而 `spec` 正是 agent 发现能力
+    的主入口，"没列出来"等于"不存在"。已知分类按习惯顺序排前面，其余按字母序兜底，
+    这样新分类至少会露出来（排最后，但不会消失）。
+    """
+    preferred = ("frame", "draw", "gradient", "filter", "transform")
+    present = {v["category"] for v in verbs.values()}
+    return [c for c in preferred if c in present] + sorted(present - set(preferred))
 
 
 def _pattern_categories(man: dict) -> dict[str, list[str]]:

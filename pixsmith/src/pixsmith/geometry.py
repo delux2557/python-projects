@@ -19,7 +19,9 @@ import math
 Point = tuple[float, float]
 
 __all__ = ["star_points", "regular_polygon_points", "ring_segment_points",
-           "gear_points", "capsule_bounds", "polar"]
+           "gear_points", "capsule_bounds", "polar",
+           "Affine", "affine_identity", "affine_mul", "affine_invert",
+           "affine_apply", "affine_is_identity", "affine_matrix"]
 
 
 def polar(cx: float, cy: float, r: float, ang_deg: float) -> Point:
@@ -118,3 +120,129 @@ def rounded_rect_points(x: float, y: float, w: float, h: float, r: float,
         for i in range(segments + 1):
             pts.append(polar(cx, cy, rr, a0 + 90.0 * i / segments))
     return pts
+
+
+# ==================================================================== 仿射
+#: 2D 仿射矩阵：``(a, b, c, d, e, f)`` —— 与 SVG 的 ``matrix(a b c d e f)`` **逐字对应**：
+#:
+#:     x' = a·x + c·y + e
+#:     y' = b·x + d·y + f
+#:
+#: 刻意沿用 SVG 的写法而不是"3×3 数组"：矢量后端拿到它一个 ``matrix(…)`` 就写完了，
+#: 位图后端用同一份数字求逆 —— **两个后端共用一份几何**，
+#: 从根上杜绝"位图的旋转中心和矢量的差半个像素"这类对不上的问题。
+#: 这里只用 ``math``，不碰 numpy：几何是后端无关的，两个后端都要用。
+Affine = tuple[float, float, float, float, float, float]
+
+#: `flip` 参数的别名表 → 两个轴的符号。
+#: 用 h/v 而不是 x/y，因为"沿 x 轴翻转"到底指左右还是上下，两种读法都说得通 —— 有歧义的参数名是坑。
+_FLIP_SIGNS: dict[str, tuple[float, float]] = {
+    "none": (1.0, 1.0), "": (1.0, 1.0), "no": (1.0, 1.0),
+    "h": (-1.0, 1.0), "horizontal": (-1.0, 1.0), "水平": (-1.0, 1.0),
+    "v": (1.0, -1.0), "vertical": (1.0, -1.0), "垂直": (1.0, -1.0),
+    "both": (-1.0, -1.0), "hv": (-1.0, -1.0), "vh": (-1.0, -1.0),
+    "两个": (-1.0, -1.0),
+}
+
+
+def affine_identity() -> Affine:
+    return (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def affine_mul(m: Affine, n: Affine) -> Affine:
+    """``m ∘ n``：**先把 ``n`` 作用上去，再作用 ``m``**（与矩阵乘法同序）。"""
+    a1, b1, c1, d1, e1, f1 = m
+    a2, b2, c2, d2, e2, f2 = n
+    return (a1 * a2 + c1 * b2, b1 * a2 + d1 * b2,
+            a1 * c2 + c1 * d2, b1 * c2 + d1 * d2,
+            a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1)
+
+
+def affine_invert(m: Affine) -> Affine:
+    """解析求逆。行列式退化时**抛错**，不返回一个会把图算成垃圾的"差不多"矩阵。"""
+    a, b, c, d, e, f = m
+    det = a * d - b * c
+    if abs(det) < 1e-12:
+        raise ValueError(
+            f"仿射矩阵不可逆（行列式 {det:.3g}）—— 检查 scale 是不是 0")
+    ia, ib, ic, idd = d / det, -b / det, -c / det, a / det
+    return (ia, ib, ic, idd, -(ia * e + ic * f), -(ib * e + idd * f))
+
+
+def affine_apply(m: Affine, x: float, y: float) -> Point:
+    a, b, c, d, e, f = m
+    return (a * x + c * y + e, b * x + d * y + f)
+
+
+def affine_is_identity(m: Affine, tol: float = 1e-9) -> bool:
+    """是不是什么都不做 —— 用来**省掉一整轮重采样**（全默认参数时）。"""
+    a, b, c, d, e, f = m
+    return (abs(a - 1.0) < tol and abs(d - 1.0) < tol
+            and abs(b) < tol and abs(c) < tol and abs(e) < tol and abs(f) < tol)
+
+
+def affine_flip_signs(flip) -> tuple[float, float]:
+    """`flip` 参数 → 两个轴的符号；不认识的值报错并列出可用值（不静默当 none）。"""
+    key = "none" if flip is None else str(flip).strip().lower()
+    if key not in _FLIP_SIGNS:
+        raise ValueError(f"flip 不认识 {flip!r}（可用：none / h / v / both）")
+    return _FLIP_SIGNS[key]
+
+
+def affine_matrix(*, size, rotate=0.0, scale=1.0, translate=None, pivot=None,
+                  flip="none", crop=None) -> Affine:
+    """把「给人看的参数」组装成**源坐标 → 画布坐标**的仿射矩阵。
+
+    复合顺序（矩阵乘法从右往左读）：
+
+        M = T(translate) · T(pivot) · R(rotate) · S(scale) · F(flip) · T(-pivot) · C(crop)
+
+    - ``crop`` 是**最内层**：先把 ``[x, y, w, h]`` 这块取景区线性铺满整张画布，
+      后面的旋转 / 缩放 / 平移都作用在"已铺满"的结果上。
+      取景区比例 ≠ 画布比例时它天然就是**非等比拉伸** —— 所以 ``scale`` 只做等比，
+      非等比请走 ``crop``：**一个参数一种类型**，不让 agent 去猜"这里能不能传数组"。
+    - ``rotate`` / ``scale`` / ``flip`` 都绕 ``pivot``（默认画布中心）。
+    - 坐标是**连续坐标**：像素 i 的中心在 ``i + 0.5``，所以画布中心正好是 ``(W/2, H/2)``。
+    - ``rotate`` 正方向 = 屏幕上顺时针（与 ``polar`` 的"0° 向右、90° 向下"同一套直觉）。
+
+    ⚠️ ``pivot`` / ``translate`` / ``crop`` 都是**绝对像素**（和 ``rect`` 的 ``x``/``y``
+    一个路数）。所以 ``export --sizes`` 那种"同一份场景换尺寸再渲染"不会连带缩放它们 ——
+    只想改尺寸时保持 ``rotate``/``scale``/``flip`` 就够了（它们本来就绕中心，天然与尺寸无关）。
+    """
+    w, h = int(size[0]), int(size[1])
+    if w < 1 or h < 1:
+        raise ValueError(f"画布尺寸必须 ≥ 1，收到 {w}×{h}")
+    if not float(scale) > 0:
+        raise ValueError(f"scale 必须 > 0，收到 {scale}（想做镜像请用 flip='h'/'v'）")
+
+    m = affine_identity()
+
+    # ① 取景（最内层）：把源坐标系线性映射到画布
+    if crop is not None:
+        cx, cy, cw, ch = (float(v) for v in crop)
+        if cw <= 0 or ch <= 0:
+            raise ValueError(f"crop 的宽高必须 > 0，收到 {cw}×{ch}")
+        sx, sy = w / cw, h / ch
+        m = (sx, 0.0, 0.0, sy, -cx * sx, -cy * sy)
+
+    # ② 绕支点的旋转 · 等比缩放 · 镜像
+    fx, fy = affine_flip_signs(flip)
+    px, py = ((w / 2.0, h / 2.0) if pivot is None
+              else (float(pivot[0]), float(pivot[1])))
+
+    def rot(deg: float) -> Affine:
+        r = math.radians(deg)
+        co, si = math.cos(r), math.sin(r)
+        return (co, si, -si, co, 0.0, 0.0)
+
+    inner = affine_mul(rot(float(rotate)),
+                       (float(scale), 0.0, 0.0, float(scale), 0.0, 0.0))
+    inner = affine_mul(inner, (fx, 0.0, 0.0, fy, 0.0, 0.0))
+    m = affine_mul(affine_mul((1.0, 0.0, 0.0, 1.0, px, py), inner),
+                   affine_mul((1.0, 0.0, 0.0, 1.0, -px, -py), m))
+
+    # ③ 平移（最外层）：画布坐标上的纯偏移
+    if translate is not None:
+        m = affine_mul((1.0, 0.0, 0.0, 1.0, float(translate[0]),
+                        float(translate[1])), m)
+    return m

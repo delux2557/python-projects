@@ -41,7 +41,7 @@ VERBS = Registry("动词")
 RESERVED = ("op", "note")
 #: 场景 JSON 允许的顶层键（`pattern`/`params` 是"等价旧配方"的语法糖）
 OP_KEYS = ("dsl", "size", "aspect", "background", "layers", "ops", "note",
-           "pattern", "params")
+           "pattern", "params", "transform")
 #: `pattern` 元 op 允许的顶层键 —— 图案自己的参数必须嵌在 `params` 里。
 #: 多出来的键**一律报错**，理由见 `_check_pattern_keys`。
 PATTERN_OP_KEYS = ("op", "note", "pattern", "params")
@@ -135,6 +135,17 @@ _declare("grain", "胶片颗粒（seed 保证可复现）", [
     _F("amount", 0.05, "颗粒强度"), _I("seed", 0, "随机种子"),
     _B("mono", True, "灰度颗粒（false = 彩色）")], "filter",
     requires=("grain",))
+
+# ------------------------------------------------------------------ 几何变换
+_declare("transform", "整幅仿射变换（旋转/等比缩放/平移/镜像/取景）——**不改画布尺寸**", [
+    _F("rotate", 0.0, "旋转角（度，正 = 屏幕上顺时针）"),
+    _F("scale", 1.0, "等比缩放倍数（必须 > 0；镜像请用 flip）"),
+    Param("translate", "points", None, "[dx, dy] 平移（px）"),
+    Param("pivot", "points", None, "[x, y] 旋转/缩放的支点（默认画布中心）"),
+    Param("flip", "str", "none", "镜像：none | h（左右）| v（上下）| both"),
+    Param("crop", "points", None,
+          "[x, y, w, h] 取景区铺满整张画布；取景比例≠画布比例时即为非等比拉伸"),
+], "transform")
 
 DRAW_VERBS = tuple(k for k in VERBS.names()
                    if k in DRAW_METHODS or k in GRADIENT_METHODS or k in FRAME_METHODS)
