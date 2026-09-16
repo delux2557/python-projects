@@ -153,6 +153,186 @@ def _cmd_render(args) -> int:
     return 0
 
 
+def _parse_sizes(spec, default: tuple[int, int]) -> list[tuple[int, int]]:
+    """解析 `--sizes`：``512,64,32,16``（方图）或 ``800x600,1200x630``（显式宽高）。
+
+    不写 `--sizes` 就只用场景自己的尺寸 —— 也就是说 `export` 退化成
+    "render + 顺便出矢量 / 单色版"，不擅自替用户决定他需要哪几个尺寸。
+    """
+    if not spec:
+        return [tuple(default)]                      # type: ignore[arg-type]
+    out: list[tuple[int, int]] = []
+    for part in str(spec).split(","):
+        t = part.strip().lower().replace("*", "x")
+        if not t:
+            continue
+        if "x" in t:
+            w, _, h = t.partition("x")
+            if not (w.strip().isdigit() and h.strip().isdigit()):
+                raise ValueError(f"看不懂的尺寸 {part!r}：写法是 N（方图）或 WxH，"
+                                 f"例如 512 或 1200x630")
+            out.append((int(w), int(h)))
+        elif t.isdigit():
+            out.append((int(t), int(t)))
+        else:
+            raise ValueError(f"看不懂的尺寸 {part!r}：写法是 N（方图）或 WxH，"
+                             f"例如 512 或 1200x630")
+    if not out:
+        raise ValueError("--sizes 是空的")
+    return out
+
+
+def _export_stem(recipe: str) -> str:
+    """输出文件名的主干：路径取文件名、stdin 叫 scene、其余当图案名。"""
+    raw = str(recipe)
+    if raw == "-":
+        return "scene"
+    if _looks_like_path(raw):
+        return Path(raw).stem
+    return raw
+
+
+def _mono_dict(obj: dict, ink: str) -> dict:
+    """把场景里所有 `color` 类型的参数换成单一墨色，**保留各自透明度**。
+
+    单色（一种墨印在任意底色上）是标识最常见的用法，手工一个个改颜色既容易漏、
+    又容易把透明度丢掉（丢掉的后果是抗锯齿边缘变成硬边）。
+    这里按 `Param` 声明的类型精确下手，**不靠参数名猜**。
+
+    ⚠️ 覆盖不到 `points` 类型的多色参数（部分图案的色阶列表）——
+    调用方会在渲染后用 `_mono_is_clean()` 检查出来并报警，不静默糊弄过去。
+    """
+    from .color import parse_color, with_alpha
+    from .ops import VERBS
+    from .patterns import REGISTRY as PATTERNS
+
+    def ink_of(v):
+        return with_alpha(ink, parse_color(v)[3]) if v is not None else None
+
+    def fix_ops(ops: list) -> list:
+        fixed = []
+        for op in ops:
+            if not isinstance(op, dict):
+                fixed.append(op)
+                continue
+            op = dict(op)
+            if str(op.get("op", "")) == "pattern":
+                spec = PATTERNS.get(str(op.get("pattern")))
+                params = dict(op.get("params") or {})
+                if spec is not None:
+                    for p in spec.params:
+                        if p.type == "color" and params.get(p.name) is not None:
+                            params[p.name] = ink_of(params[p.name])
+                if params:
+                    op["params"] = params
+            else:
+                spec = VERBS.get(str(op.get("op", "")))
+                if spec is not None:
+                    for p in spec.params:
+                        if p.type == "color" and op.get(p.name) is not None:
+                            op[p.name] = ink_of(op[p.name])
+            fixed.append(op)
+        return fixed
+
+    out = dict(obj)
+    if out.get("background") is not None:
+        out["background"] = ink_of(out["background"])
+    if isinstance(out.get("ops"), list):
+        out["ops"] = fix_ops(out["ops"])
+    if isinstance(out.get("layers"), list):
+        layers = []
+        for ly in out["layers"]:
+            if isinstance(ly, dict) and isinstance(ly.get("ops"), list):
+                layers.append({**ly, "ops": fix_ops(ly["ops"])})
+            elif isinstance(ly, list):
+                layers.append(fix_ops(ly))
+            else:
+                layers.append(ly)
+        out["layers"] = layers
+    return out
+
+
+def _mono_is_clean(rgba) -> int:
+    """数一下单色图里有几种 RGB —— 1 种才叫真单色。
+
+    为什么值得查：单色版最常见的失败是"看着是单色、其实混进了原色"
+    （多色参数没被改写）。它是**静默**的：图照样出得来、退出码照样是 0，
+    只有真的把两种墨印在同一张纸上才会露馅。所以这里主动查、主动报。
+    """
+    import numpy as np
+
+    a = np.asarray(rgba)
+    if a.ndim != 3 or a.shape[2] < 4:
+        return 1
+    opaque = a[..., 3] > 0
+    if not opaque.any():
+        return 1
+    return int(len(np.unique(a[..., :3][opaque].reshape(-1, 3), axis=0)))
+
+
+def _cmd_export(args) -> int:
+    """批量导出：一次出多尺寸 + 矢量 + 两种单色墨。
+
+    为什么单独做一个子命令：做标识 / 图标时，"同一份设计 × 尺寸阶梯 × 单色墨"
+    这个矩阵是**固定套路**，但手工循环既啰嗦又容易漏（真实踩过的坑：
+    只做了深墨单色版，忘了"深墨压在深底上等于没画"的白墨版）。
+    这类"逻辑固定、容易漏项"的活正好该由工具兜住。
+
+    退出码与 `render` 一致：0 成功，2 用法/输入错误。
+    """
+    from .scene import Scene
+    from .svg import SvgBackend
+
+    scene = _load_scene(args)
+    sizes = _parse_sizes(getattr(args, "sizes", None), scene.size)
+    base = scene.to_dict()
+    out_dir = Path(args.out or ".")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = args.name or _export_stem(args.recipe)
+
+    def label(w: int, h: int) -> str:
+        return f"{w}" if w == h else f"{w}x{h}"
+
+    made: list[str] = []
+    for w, h in sizes:
+        d = {**base, "size": [w, h]}
+        p = out_dir / f"{stem}_{label(w, h)}.png"
+        Scene.from_dict(d).render().save(p)
+        made.append(p.name)
+        print(f"  ✅ {p.name}  ({w}x{h})")
+
+    if args.svg:
+        w, h = max(sizes, key=lambda s: s[0] * s[1])
+        p = out_dir / f"{stem}.svg"
+        Scene.from_dict({**base, "size": [w, h]}).render(SvgBackend(w, h)).save(p)
+        made.append(p.name)
+        print(f"  ✅ {p.name}  (矢量，按最大档 {w}x{h})")
+
+    for ink, tag in ((args.mono, "mono"), (args.mono_light, "mono_light")):
+        if not ink:
+            continue
+        d = _mono_dict(base, ink)
+        for w, h in sizes:
+            sc = Scene.from_dict({**d, "size": [w, h]})
+            p = out_dir / f"{stem}_{tag}_{label(w, h)}.png"
+            sc.render().save(p)
+            made.append(p.name)
+            print(f"  ✅ {p.name}  ({w}x{h} · 单色 {ink})")
+            kinds = _mono_is_clean(sc.render().to_rgba8())
+            if kinds > 1:
+                print(f"  ⚠️ {p.name} 里有 {kinds} 种颜色，不是纯单色 —— "
+                      f"这份场景含 `points` 类型的多色参数（如色阶列表），"
+                      f"单色改写覆盖不到，请手工确认该参数。", file=sys.stderr)
+
+    if args.report:
+        w, h = max(sizes, key=lambda s: s[0] * s[1])
+        print(json.dumps(Scene.from_dict({**base, "size": [w, h]}).report(),
+                         ensure_ascii=False, indent=2))
+
+    print(f"\n共 {len(made)} 个文件 → {out_dir}（主名 {stem}）")
+    return 0
+
+
 def _cmd_validate(args) -> int:
     """**只校验不渲染** —— 省掉 agent 一轮"生成 → 渲染 → 看报错 → 改"的循环。
 
@@ -517,6 +697,29 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--print-recipe", action="store_true",
                    help="顺便把等价的**场景 JSON** 打到 stdout")
     s.set_defaults(func=_cmd_render)
+
+    s = sub.add_parser("export",
+                       help="批量导出：多尺寸 + 矢量 + 两种单色墨（做图标 / 标识用）")
+    s.add_argument("recipe", help="场景 JSON 路径 / 配方路径 / 图案名 / - 读 stdin")
+    s.add_argument("-o", "--out", help="输出目录（默认当前目录）")
+    s.add_argument("--name", help="输出文件名主干（默认从输入派生）")
+    s.add_argument("--sizes", metavar="LIST",
+                   help="尺寸列表，如 512,64,32,16（方图）或 800x600,1200x630；"
+                        "省略则只用场景自己的尺寸")
+    s.add_argument("--svg", action="store_true",
+                   help="另外出一份矢量（按最大档尺寸）")
+    s.add_argument("--mono", metavar="COLOR",
+                   help="单色·深墨版（印浅底），如 '#0A1730'")
+    s.add_argument("--mono-light", metavar="COLOR",
+                   help="单色·白墨版（压深底），如 '#FFFFFF' —— "
+                        "只做深墨版等于漏了一半：深墨压在深底上就是没画")
+    s.add_argument("--size", help="场景基础尺寸 WxH（省略 --sizes 时使用）")
+    s.add_argument("--background", help="底色，如 '#0A1730' 或 '#00000000'")
+    s.add_argument("--set", action="append", metavar="K=V",
+                   help="覆盖图案参数（可多次）")
+    s.add_argument("--report", action="store_true",
+                   help="打印自检报告（按最大档尺寸）")
+    s.set_defaults(func=_cmd_export)
 
     s = sub.add_parser("spec", help="能力清单（给 AI agent 的自述文件）")
     s.add_argument("--json", action="store_true", help="机器可读的完整清单")

@@ -41,7 +41,7 @@ from .recipes import (DEFAULT_SIZE, list_patterns, make_recipe, render,
 from .scene import Layer, Scene
 from .svg import SvgBackend
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     "Canvas", "SvgBackend", "Scene", "Layer",

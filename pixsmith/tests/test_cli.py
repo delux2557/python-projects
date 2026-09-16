@@ -194,3 +194,91 @@ def test_output_name_derived_from_input_path(tmp_path):
 def test_dir_is_rejected_as_scene_file(tmp_path, capsys):
     assert main(["validate", str(tmp_path)]) == 2
     assert "目录" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ export
+def test_export_writes_size_ladder_svg_and_both_mono_inks(tmp_path):
+    """一次导出"尺寸阶梯 × 两种单色墨"，外加一份矢量。
+
+    这条盯的是一个真实踩过的坑：手工循环时只做了深墨单色版，
+    漏了"深墨压在深底上等于没画"的白墨版。矩阵类输出正该由工具兜住。
+    """
+    out = tmp_path / "exp"
+    code = main(["export", "star", "-o", str(out), "--sizes", "64,32", "--svg",
+                 "--mono", "#0A1730", "--mono-light", "#FFFFFF"])
+    assert code == 0
+    for name in ("star_64.png", "star_32.png", "star.svg",
+                 "star_mono_64.png", "star_mono_32.png",
+                 "star_mono_light_64.png", "star_mono_light_32.png"):
+        p = out / name
+        assert p.exists(), f"缺少 {name}"
+        assert p.stat().st_size > 0, f"{name} 是空文件"
+
+
+def test_export_sizes_accept_explicit_width_height(tmp_path):
+    """`--sizes` 里除了方图 N，还要能写 WxH。"""
+    out = tmp_path / "exp"
+    assert main(["export", "star", "-o", str(out), "--sizes", "80x60,40x30"]) == 0
+    assert (out / "star_80x60.png").exists()
+    assert (out / "star_40x30.png").exists()
+
+
+def test_export_without_sizes_uses_scene_own_size(tmp_path):
+    """不写 `--sizes` 就只用场景自己的尺寸 —— 不擅自决定用户要哪几档。"""
+    src = tmp_path / "s.json"
+    src.write_text('{"dsl":1,"size":[50,40],"ops":[{"op":"fill","color":"#123456"}]}',
+                   encoding="utf-8")
+    out = tmp_path / "exp"
+    assert main(["export", str(src), "-o", str(out)]) == 0
+    assert (out / "s_50x40.png").exists()
+
+
+def test_export_rejects_bad_size_syntax(tmp_path, capsys):
+    assert main(["export", "star", "-o", str(tmp_path), "--sizes", "abc"]) == 2
+    assert "尺寸" in capsys.readouterr().err
+
+
+def test_mono_rewrite_replaces_colors_and_keeps_alpha():
+    """单色改写要按 `Param` 声明类型动手，并**保留各自透明度**。
+
+    丢透明度的后果不是"少个属性"——抗锯齿边缘会变成硬边，小尺寸下很明显。
+    """
+    from pixsmith.cli import _mono_dict
+    from pixsmith.color import to_rgba8
+
+    src = {"dsl": 1, "size": [10, 10], "background": "#FF000080",
+           "ops": [{"op": "disc", "cx": 3, "cy": 4, "r": 2, "color": "#00FF00AA"},
+                   {"op": "pattern", "pattern": "gradient",
+                    "params": {"begin": "#111111", "end": "#222222"}}]}
+    mono = _mono_dict(src, "#0A1730")
+
+    assert to_rgba8(mono["background"]) == (10, 23, 48, 128), "底色应换成墨色且保留 alpha"
+    assert to_rgba8(mono["ops"][0]["color"]) == (10, 23, 48, 170), "图形色应换成墨色且保留 alpha"
+    # 图案参数（在 params 里）同样要覆盖
+    assert to_rgba8(mono["ops"][1]["params"]["begin"]) == (10, 23, 48, 255)
+    assert to_rgba8(mono["ops"][1]["params"]["end"]) == (10, 23, 48, 255)
+    # 非颜色参数不许被碰
+    assert mono["ops"][0]["cx"] == 3 and mono["ops"][0]["r"] == 2
+    # 原字典不能被就地改掉（改了会让调用方的 base 场景失效）
+    assert src["background"] == "#FF000080"
+    assert src["ops"][0]["color"] == "#00FF00AA"
+
+
+def test_mono_is_clean_counts_leftover_colors():
+    """单色版必须真的只有一种 RGB —— 多色参数漏改时这张图会被判为"不干净"。
+
+    这条是"静默失败"的探测器：混了原色的单色版照样能导出、退出码照样 0，
+    只有真把两种墨印在同一张纸上才露馅。
+    """
+    import numpy as np
+
+    from pixsmith.cli import _mono_is_clean
+
+    one = np.zeros((4, 4, 4), dtype=np.uint8)
+    one[..., 3] = 255
+    one[..., 0] = 10
+    assert _mono_is_clean(one) == 1
+
+    one[0, 0, 1] = 99                       # 混进第二种颜色
+    assert _mono_is_clean(one) == 2
+
