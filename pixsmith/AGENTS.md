@@ -1,6 +1,6 @@
 # AGENTS.md — 给 AI agent 的操作手册
 
-> 对应版本：v0.8.0
+> 对应版本：v0.8.1
 > 给人读的文档在 [`README.md`](README.md) 与 [`docs/能力边界.md`](docs/能力边界.md)；
 > 这一份只讲**该怎么做**，不讲背景。权威能力清单以 `pixsmith spec --json` 为准（它从代码生成，不会过期）。
 

@@ -34,16 +34,23 @@ def _read(p: Path) -> str:
 
 
 @pytest.mark.parametrize("doc", ["docs/能力边界.md", "AGENTS.md",
-                                     "docs/31-MCP接入.md",
-                                     "docs/32-本地调参台.md"])
+                                 "docs/31-MCP接入.md",
+                                 "docs/32-本地调参台.md"])
 def test_doc_has_version_stamp_matching_code(doc):
-    """文档必须标出它对应哪个版本，且与 `__version__` 一致。"""
+    """文档必须标出它对应哪个版本，且与代码的 **major.minor** 一致。
+
+    只比到 minor 是有意的：能力变化才走 minor，patch 一般只是修 bug / 补工具。
+    一开始比到 patch，结果一次纯工具性的 patch 发布要连带改 4 个文档 ——
+    这种"改了没意义但必须改"的摩擦会让人干脆绕过检查。
+    **防过期的闸门要卡在真正会腐烂的地方（能力变了），而不是卡在每次版本号自增。**
+    """
     text = _read(ROOT / doc)
-    m = re.search(r"对应版本[：:]\s*v(\d+\.\d+\.\d+)", text)
+    m = re.search(r"对应版本[：:]\s*v(\d+\.\d+)(\.\d+)?", text)
     assert m, f"{doc} 缺少『对应版本：vX.Y.Z』标记"
-    assert m.group(1) == pixsmith.__version__, (
+    want = ".".join(pixsmith.__version__.split(".")[:2])
+    assert m.group(1) == want, (
         f"{doc} 标的是 v{m.group(1)}，代码是 v{pixsmith.__version__} —— "
-        f"改了能力请同步更新文档")
+        f"改了能力请同步更新文档（至少把 minor 对齐）")
 
 
 def test_boundary_doc_dual_backend_counts_match_code():

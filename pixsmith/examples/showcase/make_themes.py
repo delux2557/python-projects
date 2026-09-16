@@ -230,7 +230,7 @@ def build_electronics() -> None:
 def build_weather() -> None:
     G = "天气"
     # 1 晴
-    save("wx_sun", G, "晴", "封面 / 天气看板",
+    save("wx_sun", G, "晴", "封面 / 天气面板",
          [[rgrad("#3A2408", "#0A0A12", 240, 180, 320)],
           ly([pat("ray_burst", count=24, cx=240, cy=180, inner=64, length=1.0,
                   color="#F2C14E", width=6.0, jitter=0.0, seed=5, core=False)]),
@@ -238,7 +238,7 @@ def build_weather() -> None:
               d(240, 180, 74, "#FFE9AF")])])
 
     # 2 多云
-    save("wx_cloud", G, "多云", "天气看板",
+    save("wx_cloud", G, "多云", "天气面板",
          [[lgrad("#0E1A2A", "#26405C", 118)],
           ly([d(360, 118, 52, "#E8B33CAA")]),
           ly(cloud_discs(216, 190, 1.0, "#DCE6F2F2")),
@@ -248,7 +248,7 @@ def build_weather() -> None:
     rain = [cap(120 + (i % 9) * 34, 210 + (i // 9) * 26, 132 + (i % 9) * 34,
                 268 + (i // 9) * 26, 2.0,
                 f"#6FB7E8{90 + (i % 4) * 40:02X}") for i in range(36)]
-    save("wx_rain", G, "雨", "天气看板",
+    save("wx_rain", G, "雨", "天气面板",
          [[lgrad("#0A1420", "#1B2E44", 118)], ly(cloud_discs(240, 138, 0.9, "#3E5570EE")),
           ly(rain)])
 
@@ -263,7 +263,7 @@ def build_weather() -> None:
             flakes.append(cap(fx - math.cos(a) * 26 * s, fy - math.sin(a) * 26 * s,
                               fx + math.cos(a) * 26 * s, fy + math.sin(a) * 26 * s,
                               1.6 * s, "#8FC8F0DD"))
-    save("wx_snow", G, "雪", "天气看板",
+    save("wx_snow", G, "雪", "天气面板",
          [[lgrad("#0C1626", "#22405E", 118)],
           ly([pat("dots", bg="#00000000", dot="#DCEEFF", cell=52, radius=1.6)]),
           ly(flakes)])
@@ -271,14 +271,14 @@ def build_weather() -> None:
     # 5 雷
     bolt = poly([(232, 60), (300, 60), (258, 166), (312, 166), (200, 316),
                  (238, 196), (186, 196)], "#F2C14E")
-    save("wx_storm", G, "雷", "天气看板 / 告警",
+    save("wx_storm", G, "雷", "天气面板 / 告警",
          [[lgrad("#160E2C", "#2A1B44", 118)], ly(cloud_discs(240, 110, 1.0, "#2E2450F0")),
           ly([bolt]), ly([rg(240, 190, 150, 146, "#F2C14E55")], blend="screen", opacity=0.8)])
 
     # 6 雾
     bands = [cap(40, 96 + i * 34, 440, 96 + i * 34, 9 - i * 0.6,
                  f"#C9D6E4{40 + i * 12:02X}") for i in range(7)]
-    save("wx_fog", G, "雾", "天气看板",
+    save("wx_fog", G, "雾", "天气面板",
          [[lgrad("#141C26", "#39485A", 118)], ly([d(356, 96, 44, "#E8B33C33")]), ly(bands)])
 
 
