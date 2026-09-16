@@ -83,6 +83,9 @@ pixsmith render gradient --size 1920x1080 \
     --set begin=#0A1730 --set end=#C8102E -o bg.png
 pixsmith render gradient --size 1920x1080 -o bg.svg   # 同一份参数 → 矢量输出
 pixsmith render cover.scene.json --report       # 渲染 + 自检报告
+pixsmith export icon.json -o out/ --sizes 512,64,32,16 --svg \\   # 一轮出齐尺寸阶梯+矢量+双单色墨
+        --mono '#0A1730' --mono-light '#FFFFFF'
+pixsmith sheet icon.json --sizes 512,64,32,16 -o sheet.png        # 联络表：多档尺寸摆一张图，一图看全
 pixsmith gallery --out gallery --svg           # 全部图案 + HTML 索引（附矢量版）
 ```
 
@@ -472,7 +475,13 @@ pixsmith spec --json --kind verb     # 全部动词的规格
 pixsmith validate scene.json         # 只校验不渲染（省一轮往返）
 pixsmith --json-errors render x.json # 错误也是机器可读的 JSON
 pixsmith render x.json --report      # 自检报告：channel_range / corner_colors / hints
+pixsmith sheet x.json --sizes 512,64,32,16 --json   # 一图看全尺寸阶梯 + 机器可读的行列映射
 ```
+
+**agent 看不见图，所以"自检"要有两件东西**：`--report` 给数字（参数生效了吗），
+`sheet` 给一张能一次看完所有档位的图（哪一档开始糊）。`sheet` 的每个格子是按目标尺寸
+**单独渲染**的原始像素 —— 不是缩出来的大图，因为把 512 采样到 16 会把抗锯齿边缘糊成灰，
+判断结论可能反过来。
 
 ## License
 

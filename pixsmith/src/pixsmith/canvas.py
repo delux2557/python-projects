@@ -82,6 +82,39 @@ class Canvas:
     def save(self, path) -> str:
         return write_png(path, self.to_rgba8())
 
+    # ------------------------------------------------------------ 拼版
+    def blit(self, rgba: np.ndarray, x: int, y: int) -> "Canvas":
+        """把一张**已渲染**的 ``(h, w, 4)`` uint8 图原样放到 ``(x, y)``。
+
+        为什么它不算"图像编辑"（边界说明）
+        ----------------------------------
+        只做**平移式**的 over 合成：不缩放、不旋转、不采样，也不读任何图片文件 ——
+        源数据是调用方手上刚渲染出来的数组。所以它撞不到本项目
+        「不做图像编辑（裁剪 / 合成已有照片）」那条线：那是**处理器**的活，
+        而这里连一个解码器都不需要。`sheet` 拼联络表就靠它。
+
+        刻意**不进 `_CAPABILITIES`**：能力集合是给 op 的 `requires` 做校验用的，
+        而没有任何 op 需要这个动作。列进去只会让 `spec` 多出一条谁也不该用的能力。
+
+        越界部分会被**裁掉**（不报错）—— 这是拼版时的正常需求；
+        调用方要保证不裁就自己算准坐标。
+        """
+        arr = np.asarray(rgba)
+        if arr.ndim != 3 or arr.shape[2] != 4:
+            raise ValueError(f"blit 需要 (h, w, 4) 的数组，收到 {arr.shape}")
+        x0, y0 = int(x), int(y)
+        if x0 < 0 or y0 < 0:
+            raise ValueError(f"blit 的落点不能为负，收到 ({x0}, {y0})")
+        # numpy 切片会静默截断，而 `_blend` 要求行列数严格对得上 —— 先显式裁再交出去
+        vis_h = min(arr.shape[0], self.h - y0)
+        vis_w = min(arr.shape[1], self.w - x0)
+        if vis_h <= 0 or vis_w <= 0:
+            return self                                    # 完全落在画布外
+        f = np.asarray(arr[:vis_h, :vis_w], dtype=np.float32) / 255.0
+        self._blend(x0, y0, np.ascontiguousarray(f[..., :3]),
+                    np.ascontiguousarray(f[..., 3]))
+        return self
+
     # ------------------------------------------------------------ 合成核心
     def _blend(self, x0: int, y0: int, srgb: np.ndarray, sa: np.ndarray) -> None:
         """把「源 RGB 场 + 源 alpha 场」按 over 合成进 ``[y0, x0]`` 起始的区块。"""

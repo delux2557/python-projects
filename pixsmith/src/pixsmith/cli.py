@@ -86,7 +86,10 @@ def _looks_like_path(s: str) -> bool:
     return any(m in s for m in _PATH_MARKS) or s.lower().endswith(_PATH_EXTS)
 
 
-def _load_scene(args) -> "Scene":
+_UNSET = object()
+
+
+def _load_scene(args, raw=None, *, background=_UNSET) -> "Scene":
     """把命令行输入统一成 `Scene`：stdin / 场景文件 / 旧配方 / 图案名。
 
     判定顺序（**先路径后图案，没有"猜"的余地**）：
@@ -94,11 +97,16 @@ def _load_scene(args) -> "Scene":
       2. 像路径          → 必须是文件，不存在就报**文件不存在**（附带绝对路径与当前目录）
       3. 确实是文件      → 读文件
       4. 其余            → 图案名（配合 ``--set`` / ``--size`` / ``--background``）
+
+    ``raw`` 省略时取 ``args.recipe``；`sheet` 一次要吃多个输入，所以显式传。
+    ``background`` 用来把"场景底色"与"联络表底色"分开 —— `sheet` 的 ``--background``
+    指的是**整张表**的底色，不该顺手改掉格子里的场景。
     """
     from .recipes import recipe_from_cli
     from .scene import Scene
 
-    raw = str(args.recipe)
+    raw = str(args.recipe if raw is None else raw)
+    bg = args.background if background is _UNSET else background
     if raw == "-":
         return Scene.from_dict(json.loads(sys.stdin.read()))
 
@@ -116,7 +124,7 @@ def _load_scene(args) -> "Scene":
         return Scene.from_file(path)
     if path.exists():
         return Scene.from_file(path)
-    return Scene.from_dict(recipe_from_cli(raw, args.size, args.background, args.set))
+    return Scene.from_dict(recipe_from_cli(raw, args.size, bg, args.set))
 
 
 def _cmd_render(args) -> int:
@@ -330,6 +338,139 @@ def _cmd_export(args) -> int:
                          ensure_ascii=False, indent=2))
 
     print(f"\n共 {len(made)} 个文件 → {out_dir}（主名 {stem}）")
+    return 0
+
+
+#: 联络表默认底色：透明区的通用棋盘格（白 / 浅灰）。
+#: 刻意不用纯色 —— 纯色会把「透空」和「画了一块纯色」混成同一件事，
+#: 而画布上真正透空的部分恰恰是 agent 需要**看见**的（`report()` 只能看见数字）。
+_SHEET_CHECKER = ("#FFFFFF", "#D6D6D6")
+#: 格子分隔线（只在不止一格时画）
+_SHEET_SEPARATOR = "#B9B9B9"
+#: 联络表总像素上限。超了就**明确报错**，不做"偷偷抽稀"这种事 ——
+#: 悄悄换掉尺寸会让"16px 那档还认不认得出"这个判断直接失效。
+#: 16 MP 同时也是内存护栏：画布 ``buf`` 是 float32 四通道（16 B/px），
+#: 算上棋盘格的 RGB 场（12 B/px），16 MP 的峰值约 350 MB —— 再往上就不体面了。
+_SHEET_MAX_PIXELS = 16_000_000
+
+
+def _checker_field(w: int, h: int, tile: int, c0: str, c1: str):
+    """两色棋盘格的 RGB 场（不透明），交给 `Canvas.paint` 铺底。"""
+    import numpy as np
+
+    from .color import parse_color
+
+    t = max(2, int(tile))
+    ix = np.arange(w, dtype=np.int64) // t
+    iy = np.arange(h, dtype=np.int64) // t
+    parity = ((ix[None, :] + iy[:, None]) % 2).astype(bool)
+    a, b = parse_color(c0), parse_color(c1)
+    field = np.empty((h, w, 3), dtype=np.float32)
+    for i in range(3):
+        field[..., i] = np.where(parity, b[i], a[i])
+    return field
+
+
+def _cmd_sheet(args) -> int:
+    """联络表：把**多个配方 × 多个尺寸**渲染进同一张画布，一图看全。
+
+    为什么需要它
+    ------------
+    `export` 出的是**一堆文件**：4 档尺寸就是 4 个 PNG。agent 要判断"16px 那档
+    还认得出吗"，得连着读 4 次图 —— 既费 token，又**看不出相对大小**
+    （4 张图摆在眼前是一样大的）。联络表把同一份设计的不同档位按**真实像素尺寸**
+    摆在一张图上：512 与 16 的格子边长比就是 32:1，看不清就是看不清，一眼的事。
+
+    为什么不需要 PNG 解码器，也没碰「刻意不做」
+    ------------------------------------------
+    每个格子都是**先按目标尺寸渲染、再原样摆进去**（`Canvas.blit`），
+    全程没有重采样，也没有读任何外部图片文件。所以它用的是现有能力，
+    不是"图像编辑"—— 「不做图像编辑（裁剪 / 合成已有照片）」那条边界完好无损。
+
+    代价与补救
+    ----------
+    本项目不碰字体光栅化（见「刻意不做」），所以**格子画不了标签**。
+    补救是把版式做成机器可读的输出：stdout 上每格一行 ``[行,列]`` 映射，
+    ``--json`` 给出完整的 ``tiles``（配方 / 尺寸 / 像素矩形）。
+
+    退出码与 `render` 一致：0 成功，2 用法/输入错误。
+    """
+    from .canvas import Canvas
+    from .scene import Scene
+
+    raws = [str(r) for r in args.recipe]
+    if "-" in raws and len(raws) > 1:
+        raise ValueError("`-`（读 stdin）只能单独用：stdin 只读得到一份场景")
+    if args.set and len(raws) > 1:
+        raise ValueError(
+            "--set 只能配单个配方用 —— 多份配方要覆盖的键十有八九不一样，"
+            "套同一份覆盖会静默改错场景。请先把参数写进各自的场景 JSON 再拼。")
+
+    # 行 = 配方，列 = 尺寸档位。这样同一行横向比档位、同一列纵向比设计。
+    variants: list[tuple[str, Scene, list[tuple[int, int]]]] = []
+    for raw in raws:
+        scene = _load_scene(args, raw, background=None)
+        variants.append((_export_stem(raw), scene,
+                         _parse_sizes(getattr(args, "sizes", None), scene.size)))
+
+    rows = len(variants)
+    cols = max(len(s) for _, _, s in variants)
+    cell_w = max(w for _, _, ss in variants for w, _ in ss)
+    cell_h = max(h for _, _, ss in variants for _, h in ss)
+    gap = int(args.gap) if args.gap else max(8, round(min(cell_w, cell_h) / 16))
+    pad = gap
+    sheet_w = pad * 2 + cols * cell_w + (cols - 1) * gap
+    sheet_h = pad * 2 + rows * cell_h + (rows - 1) * gap
+    if sheet_w * sheet_h > _SHEET_MAX_PIXELS:
+        raise ValueError(
+            f"联络表会到 {sheet_w}x{sheet_h}"
+            f"（{sheet_w * sheet_h / 1e6:.1f} MP），超过上限 "
+            f"{_SHEET_MAX_PIXELS / 1e6:.0f} MP —— 请减少档位 / 配方数，"
+            f"或把最大档调小（尺寸是硬约束，这里不会替你缩）。")
+
+    sheet = Canvas(sheet_w, sheet_h)
+    bg = args.background
+    if bg is None or str(bg).lower() in ("checker", "棋盘", "棋盘格"):
+        sheet.paint(_checker_field(sheet_w, sheet_h, args.checker, *_SHEET_CHECKER))
+    elif str(bg).lower() not in ("none", "transparent", "透明"):
+        sheet.fill(bg)
+    if rows > 1 or cols > 1:                               # 一格时画线纯属噪音
+        for c in range(1, cols):
+            x = pad + c * (cell_w + gap) - gap
+            sheet.rect(x, 0, gap, sheet_h, _SHEET_SEPARATOR)
+        for r in range(1, rows):
+            y = pad + r * (cell_h + gap) - gap
+            sheet.rect(0, y, sheet_w, gap, _SHEET_SEPARATOR)
+
+    tiles: list[dict] = []
+    for r, (name, scene, sizes) in enumerate(variants):
+        base = scene.to_dict()
+        for c, (w, h) in enumerate(sizes):
+            arr = Scene.from_dict({**base, "size": [w, h]}).render().to_rgba8()
+            # 居中摆放：格子统一成最大档，小档原地不动（**不缩放、不重采样**）
+            x = pad + c * (cell_w + gap) + (cell_w - w) // 2
+            y = pad + r * (cell_h + gap) + (cell_h - h) // 2
+            sheet.blit(arr, x, y)
+            tiles.append({"row": r, "col": c, "recipe": name, "size": [w, h],
+                          "at": [x, y]})
+
+    out = args.out or "sheet.png"
+    sheet.save(out)
+    layout = {"out": str(out), "sheet_size": [sheet_w, sheet_h],
+              "cell": [cell_w, cell_h], "gap": gap, "pad": pad,
+              "rows": rows, "cols": cols, "tiles": tiles}
+    if args.json:
+        print(json.dumps(layout, ensure_ascii=False, indent=2))
+        return 0
+    for t in tiles:
+        print(f"  ✅ [{t['row']},{t['col']}] {t['recipe']} "
+              f"{t['size'][0]}x{t['size'][1]} → ({t['at'][0]}, {t['at'][1]})")
+    print(f"\n✅ {out}  {sheet_w}x{sheet_h} · {rows} 行 × {cols} 列 · "
+          f"单格 {cell_w}x{cell_h}（尺寸按真实像素摆，未缩放）")
+    print(f"   行 = 配方（{rows} 个）· 列 = 尺寸档位（{cols} 档）· "
+          f"每格居中；尺寸档从大到小摆最便于横向比较。")
+    print("   ℹ️ 格子没有标签（本项目不画文字）—— 行列表见上面的映射，"
+          "或加 --json 拿机器可读的 tiles。")
     return 0
 
 
@@ -720,6 +861,27 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--report", action="store_true",
                    help="打印自检报告（按最大档尺寸）")
     s.set_defaults(func=_cmd_export)
+
+    s = sub.add_parser("sheet",
+                       help="联络表：把多个配方 × 多个尺寸摆进同一张图，一图看全")
+    s.add_argument("recipe", nargs="+",
+                   help="一个或多个场景 JSON / 配方 / 图案名；- 读 stdin（只能单独用）")
+    s.add_argument("-o", "--out", help="输出 PNG（默认 sheet.png）")
+    s.add_argument("--sizes", metavar="LIST",
+                   help="尺寸阶梯，如 512,64,32,16（每个配方都套这份，建议大到小）；"
+                        "省略则各用自己场景的尺寸")
+    s.add_argument("--size", help="场景基础尺寸 WxH（配合图案名写法时用）")
+    s.add_argument("--background", metavar="COLOR",
+                   help=f"**整张表**的底色（默认 {_SHEET_CHECKER[0]}/"
+                        f"{_SHEET_CHECKER[1]} 棋盘格，好让透空区显形）；"
+                        f"填 none 透空，或给色值如 '#0A1730'")
+    s.add_argument("--checker", type=int, default=8, help="棋盘格边长 px（默认 8）")
+    s.add_argument("--gap", type=int, help="格子间距与外边距（默认取最大档的 1/16）")
+    s.add_argument("--set", action="append", metavar="K=V",
+                   help="覆盖图案参数（只能配单个配方用）")
+    s.add_argument("--json", action="store_true",
+                   help="只输出**版式图** JSON（行列 → 配方 / 尺寸 / 像素矩形），给 agent 读")
+    s.set_defaults(func=_cmd_sheet)
 
     s = sub.add_parser("spec", help="能力清单（给 AI agent 的自述文件）")
     s.add_argument("--json", action="store_true", help="机器可读的完整清单")

@@ -282,3 +282,141 @@ def test_mono_is_clean_counts_leftover_colors():
     one[0, 0, 1] = 99                       # 混进第二种颜色
     assert _mono_is_clean(one) == 2
 
+
+# ------------------------------------------------------------------ sheet
+def _spy_sheet(monkeypatch):
+    """把最后一次 `Canvas.save` 的**像素**截下来 —— 联络表的断言全在像素上。"""
+    from pixsmith.canvas import Canvas
+
+    seen: dict = {}
+    real = Canvas.save
+
+    def spy(self, path):
+        seen["arr"] = self.to_rgba8()
+        return real(self, path)
+
+    monkeypatch.setattr(Canvas, "save", spy)
+    return seen
+
+
+def test_sheet_places_each_size_verbatim_without_resampling(tmp_path, monkeypatch,
+                                                            capsys):
+    """**这条是 `sheet` 的核心承诺**：每个格子都是按目标尺寸单独渲染的原始像素。
+
+    不是"缩过的大图"：把 512 采样到 16 会让抗锯齿边缘糊成灰，而真按 16px 渲染
+    可能是干净的 3 个像素。两者看起来"差不多"，判断结论却可能相反。
+    所以这里不看"像不像"，直接比字节。
+
+    场景带不透明底色：格子里全被盖住，才谈得上"原样"（透空处本就该露出棋盘格）。
+    """
+    import numpy as np
+
+    from pixsmith.scene import Scene
+
+    seen = _spy_sheet(monkeypatch)
+    src = tmp_path / "s.json"
+    base = {"dsl": 1, "size": [64, 64], "background": "#102030", "pattern": "star"}
+    src.write_text(json.dumps(base), encoding="utf-8")
+
+    assert main(["sheet", str(src), "--sizes", "64,32",
+                 "-o", str(tmp_path / "a.png"), "--json"]) == 0
+    lay = json.loads(capsys.readouterr().out)
+    sheet = seen["arr"]
+    assert sheet.shape[:2] == (lay["sheet_size"][1], lay["sheet_size"][0])
+    assert len(lay["tiles"]) == 2
+
+    for t in lay["tiles"]:
+        w, h = t["size"]
+        x, y = t["at"]
+        want = Scene.from_dict({**base, "size": [w, h]}).render().to_rgba8()
+        assert want[..., 3].min() == 255, "夹具场景必须是全不透明的，否则断言会空过"
+        assert np.array_equal(sheet[y:y + h, x:x + w], want), \
+            f"{w}px 那格不是原样放进去的（被重采样了）"
+
+
+def test_sheet_is_a_grid_of_recipes_by_sizes(tmp_path, capsys):
+    """行 = 配方，列 = 尺寸档 —— 版式图必须机器可读，否则格子没标签就没人知道谁是谁。"""
+    out = tmp_path / "g.png"
+    assert main(["sheet", "star", "gradient", "--size", "40x40",
+                 "--sizes", "40,20", "-o", str(out), "--json"]) == 0
+    lay = json.loads(capsys.readouterr().out)
+    assert (lay["rows"], lay["cols"]) == (2, 2)
+    assert lay["cell"] == [40, 40]
+    assert [(t["row"], t["col"], t["recipe"], t["size"]) for t in lay["tiles"]] == [
+        (0, 0, "star", [40, 40]), (0, 1, "star", [20, 20]),
+        (1, 0, "gradient", [40, 40]), (1, 1, "gradient", [20, 20])]
+    # 每格落点必须落在画布内，且左上角就是外边距起点
+    assert lay["tiles"][0]["at"] == [lay["pad"], lay["pad"]]
+    for t in lay["tiles"]:
+        assert 0 <= t["at"][0] and t["at"][0] + t["size"][0] <= lay["sheet_size"][0]
+        assert 0 <= t["at"][1] and t["at"][1] + t["size"][1] <= lay["sheet_size"][1]
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_sheet_json_is_the_only_thing_on_stdout(tmp_path, capsys):
+    """`--json` 的 stdout 必须**只有** JSON —— agent 是按行解析的。"""
+    assert main(["sheet", "star", "--size", "32x32", "--sizes", "32",
+                 "-o", str(tmp_path / "a.png"), "--json"]) == 0
+    json.loads(capsys.readouterr().out)          # 多一行都会被这里炸出来
+
+
+def test_sheet_default_background_is_checkerboard(tmp_path, monkeypatch):
+    """默认底色是棋盘格，**不是纯色** —— 否则「透空」与「画了一块纯色」肉眼分不开。"""
+    import numpy as np
+
+    seen = _spy_sheet(monkeypatch)
+    assert main(["sheet", "star", "--size", "16x16", "--sizes", "16",
+                 "-o", str(tmp_path / "c.png")]) == 0
+    sheet = seen["arr"]
+    corner = sheet[0, 0]                          # 左上角必落在外边距（无格子的地方）
+    assert corner[3] == 255, "默认底色不能是透明的"
+    padding = sheet[0, :, :3].reshape(-1, 3)
+    assert len(np.unique(padding, axis=0)) == 2, "底色应该是两色棋盘，不是纯色"
+
+
+def test_sheet_background_none_keeps_the_padding_transparent(tmp_path, monkeypatch):
+    seen = _spy_sheet(monkeypatch)
+    assert main(["sheet", "star", "--size", "16x16", "--sizes", "16",
+                 "--background", "none", "-o", str(tmp_path / "n.png")]) == 0
+    assert seen["arr"][0, 0, 3] == 0, "`--background none` 时外边距应当透空"
+
+
+def test_sheet_rejects_oversized_sheet(tmp_path, capsys):
+    """尺寸是硬约束：宁可报错也不替你缩 —— 缩了这张表的结论就作废了。"""
+    assert main(["sheet", "star", "--sizes", "4000,3500",
+                 "-o", str(tmp_path / "big.png")]) == 2
+    err = capsys.readouterr().err
+    assert "上限" in err and "MP" in err
+
+
+def test_sheet_rejects_set_with_multiple_recipes(tmp_path, capsys):
+    """`--set` 只能配单个配方：多份配方套同一份覆盖＝静默改错场景。"""
+    assert main(["sheet", "star", "gradient", "--size", "32x32",
+                 "--set", "color=#FF0000", "-o", str(tmp_path / "s.png")]) == 2
+    assert "--set" in capsys.readouterr().err
+
+
+def test_canvas_blit_only_translates(tmp_path):
+    """`blit` 是拼版用的平移合成：越界裁掉而不是炸，负数落点直接报错。"""
+    import numpy as np
+    import pytest as _pytest
+
+    from pixsmith.canvas import Canvas
+
+    src = np.zeros((4, 4, 4), dtype=np.uint8)
+    src[..., 0], src[..., 3] = 200, 255
+
+    c = Canvas(6, 6)
+    c.blit(src, 2, 2)                            # 右下角溢出 2 行 2 列，裁掉即可
+    assert tuple(c.to_rgba8()[2, 2, :3]) == (200, 0, 0)
+    assert c.to_rgba8()[5, 5, 3] == 255
+
+    c2 = Canvas(4, 4)
+    c2.blit(src, 10, 0)                          # 完全在画布外 → 什么都不做
+    assert c2.to_rgba8()[..., 3].max() == 0
+
+    with _pytest.raises(ValueError, match="落点"):
+        Canvas(4, 4).blit(src, -1, 0)
+    with _pytest.raises(ValueError, match="\\(h, w, 4\\)"):
+        Canvas(4, 4).blit(np.zeros((4, 4, 3), dtype=np.uint8), 0, 0)
+
