@@ -1,0 +1,26 @@
+{
+  "dsl": 1,
+  "size": [1920, 1080],
+  "note": "汇报封面底图：双色渐变 + 大理石纹理 + 斜向光芒 + 胶片颗粒 + 暗角",
+  "layers": [
+    [
+      {"op": "linear_gradient",
+       "begin": "#0A1730", "mid": "#4A1942", "mid_at": 0.5,
+       "end": "#C8102E", "angle": 118}
+    ],
+    {"blend": "soft-light", "opacity": 0.30, "ops": [
+      {"op": "pattern", "pattern": "marble",
+       "params": {"seed": 11, "freq": 2.2, "bands": 3.0, "warp": 0.35, "detail": 0.12}}
+    ]},
+    {"blend": "screen", "opacity": 0.13, "ops": [
+      {"op": "pattern", "pattern": "ray_burst",
+       "params": {"count": 90, "cx": 1420, "cy": -140, "color": "#FFE9AF", "seed": 5, "core": false}}
+    ]},
+    {"blend": "soft-light", "opacity": 0.22, "ops": [
+      {"op": "pattern", "pattern": "noise", "params": {"amount": 0.06, "seed": 3}}
+    ]},
+    {"blend": "normal", "opacity": 0.75, "ops": [
+      {"op": "pattern", "pattern": "vignette", "params": {"strength": 0.45, "power": 1.4}}
+    ]}
+  ]
+}

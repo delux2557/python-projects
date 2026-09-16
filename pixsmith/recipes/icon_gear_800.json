@@ -1,0 +1,20 @@
+{
+  "dsl": 1,
+  "size": [800, 800],
+  "note": "矢量装饰件：径向渐变 + 网格 + 齿轮 —— 这份能出 SVG，PPT 里可无损放大",
+  "layers": [
+    [
+      {"op": "radial_gradient", "inner": "#13253F", "outer": "#05070F"}
+    ],
+    {"blend": "normal", "opacity": 0.45, "ops": [
+      {"op": "pattern", "pattern": "grid",
+       "params": {"bg": "#00000000", "line": "#3E6FA8", "major": "#E8B33C",
+                  "step": 40, "every": 4, "width": 1.0, "major_width": 2.0}}
+    ]},
+    {"blend": "normal", "opacity": 1.0, "ops": [
+      {"op": "pattern", "pattern": "gear",
+       "params": {"color": "#F2C14E", "teeth": 24, "tooth": 0.22,
+                  "spokes": 8, "hub": 0.26, "hole": 0.34}}
+    ]}
+  ]
+}
